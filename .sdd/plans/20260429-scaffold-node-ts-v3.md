@@ -2,7 +2,7 @@
 
 SPEC: [.sdd/specs/20260429-scaffold-node-ts.md](../specs/20260429-scaffold-node-ts.md)
 Versión anterior: [20260429-scaffold-node-ts-v2.md](20260429-scaffold-node-ts-v2.md) (APROBADO)
-Estado: BORRADOR
+Estado: APROBADO
 
 ## Motivo de la ampliación
 

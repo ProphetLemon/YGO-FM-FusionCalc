@@ -1,7 +1,7 @@
 # PLAN: scaffold-node-ts
 
 SPEC: [.sdd/specs/20260429-scaffold-node-ts.md](../specs/20260429-scaffold-node-ts.md)
-Estado: BORRADOR
+Estado: APROBADO (sustituido por v3)
 
 ## Archivos a modificar
 

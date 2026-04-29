@@ -1,7 +1,7 @@
 # SPEC: scaffold-node-ts
 
 Fecha: 2026-04-29
-Estado: BORRADOR
+Estado: APROBADO
 
 ## Objetivo
 
