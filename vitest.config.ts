@@ -13,7 +13,19 @@ export default defineConfig({
             provider: "v8",
             reporter: ["text", "html"],
             include: ["src/**/*.ts"],
-            exclude: ["src/**/*.d.ts", "src/shared/types.ts"],
+            exclude: [
+                "src/**/*.d.ts",
+                "src/shared/types.ts",
+                "src/server/index.ts",
+                "src/server/logger.ts",
+                "src/client/**/*.ts",
+            ],
+            thresholds: {
+                lines: 80,
+                functions: 80,
+                branches: 80,
+                statements: 80,
+            },
         },
     },
     resolve: {

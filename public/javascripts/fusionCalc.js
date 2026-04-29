@@ -113,10 +113,10 @@ function findFusions() {
         }
     }
 
-    outputLeft.innerHTML = "<h2 class='center'>Fusions:</h2>";
+    outputLeft.innerHTML = "<h2 class='text-center font-display text-2xl my-3'>Fusions:</h2>";
     outputLeft.innerHTML += fusesToHTML(fuses.sort((a, b) => b.result.Attack - a.result.Attack));
 
-    outputRight.innerHTML = "<h2 class='center'>Equips:</h2>";
+    outputRight.innerHTML = "<h2 class='text-center font-display text-2xl my-3'>Equips:</h2>";
     outputRight.innerHTML += fusesToHTML(equips);
 }
 

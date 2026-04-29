@@ -1,1 +1,61 @@
 @import "tailwindcss";
+
+@theme {
+    --font-body: "Varela Round", "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-display: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --color-fm-primary: rgb(30 35 55);
+    --color-fm-search-bg: rgb(244 244 245);
+    --color-fm-calculator-bg: rgb(255 134 82);
+    --color-fm-calculator-fg: rgb(122 10 0);
+    --color-fm-about-cta: rgb(243 178 166);
+    --color-fm-about-cta-hover: rgb(237 139 121);
+
+    --animate-hero-slide: hero-slide 1s 1;
+}
+
+@keyframes hero-slide {
+    0% {
+        transform: translateX(-50%);
+        opacity: 0;
+    }
+    100% {
+        transform: translateX(0%);
+        opacity: 1;
+    }
+}
+
+@utility bg-vrains {
+    background-image:
+        linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url("/public/images/background.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
+}
+
+@utility bg-polymerization {
+    background-image:
+        linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url("/public/images/fusion_background.jpg");
+    background-repeat: repeat-y;
+    background-position: center;
+    background-size: cover;
+}
+
+@utility bg-lost-memories {
+    background-image:
+        linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url("/public/images/lost_memories.jpg");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
+    text-shadow: 2px 2px 6px black;
+}
+
+@utility cover-glow {
+    transition: box-shadow 200ms ease;
+    &:hover {
+        box-shadow:
+            0 1px 0 #00a8e7,
+            0 0 5px 0 #00a8e7,
+            0 0 1px 0 #00a8e7;
+    }
+}

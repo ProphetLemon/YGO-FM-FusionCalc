@@ -17,26 +17,25 @@ function resultsClear() {
 }
 
 function createDangerMessage(input) {
-    if (!input) {
-        let firstMessage = `<div class="alert alert-danger" role="alert">Please enter a search term</div>`;
-        return firstMessage;
-    } else {
-        let secondMessage = `<div class="alert alert-danger" role="alert">No card for ${input} found</div>`;
-        return secondMessage;
-    }
+    var msg = !input ? "Please enter a search term" : "No card for " + input + " found";
+    return (
+        '<div class="block rounded p-3 bg-red-100 text-red-800 border border-red-300" role="alert">' +
+        msg +
+        "</div>"
+    );
 }
 
 function createSideCard(card) {
-    let modelCard = `<div class="card ml-1" style="max-width: 540px">
-                    <div class="row no-gutters">
-                    <div class="col">
-                    <div class="card-body">
-                    <h5 class="card-title">${card.Name}</h5>
-                    <p class="card-text">${card.Description}</p>
-                    <p class="card-text"><strong>ATK / DEF:</strong> ${card.Attack} / ${card.Defense}</p>
-                    <p class="card-text"><strong>Type:</strong> ${cardTypes[card.Type]}</p>
-                    <p class="card-text"><strong>Stars:</strong> ${card.Stars}</p>
-                    <p class="card-text"><strong>Password:</strong> ${card.CardCode}</p>
+    let modelCard = `<div class="block rounded-lg border border-fm-primary/30 bg-white shadow-sm ml-1" style="max-width: 540px">
+                    <div class="flex flex-wrap gap-0">
+                    <div class="flex-1">
+                    <div class="p-4">
+                    <h5 class="font-semibold text-base mb-2">${card.Name}</h5>
+                    <p class="mb-2 text-sm">${card.Description}</p>
+                    <p class="mb-2 text-sm"><strong>ATK / DEF:</strong> ${card.Attack} / ${card.Defense}</p>
+                    <p class="mb-2 text-sm"><strong>Type:</strong> ${cardTypes[card.Type]}</p>
+                    <p class="mb-2 text-sm"><strong>Stars:</strong> ${card.Stars}</p>
+                    <p class="mb-2 text-sm"><strong>Password:</strong> ${card.CardCode}</p>
                     </div>
                     </div>
                     </div>
@@ -46,7 +45,7 @@ function createSideCard(card) {
         return modelCard;
     } else {
         let notMonsterCard = modelCard.replace(
-            `<p class="card-text"><strong>ATK / DEF:</strong> ${card.Attack} / ${card.Defense}</p>`,
+            `<p class="mb-2 text-sm"><strong>ATK / DEF:</strong> ${card.Attack} / ${card.Defense}</p>`,
             ""
         );
         return notMonsterCard;
@@ -74,13 +73,13 @@ $("#cardname").on("awesomplete-selectcomplete", function () {
 // Creates a div for each fusion
 function fusesToHTML(fuselist) {
     return fuselist.map(function (fusion) {
-        var res = `<div class="card border-dark mb-3" style="max-width: 18rem;">
-        <div class="card-body text-dark"><p class="card-text"><strong>Input:</strong> ${fusion.card1.Name}
-        <p class="card-text"><strong>Input:</strong> ${fusion.card2.Name}`;
+        var res = `<div class="block rounded-lg border border-black bg-white shadow-sm mb-3" style="max-width: 18rem;">
+        <div class="p-4 text-fm-primary"><p class="mb-2 text-sm"><strong>Input:</strong> ${fusion.card1.Name}</p>
+        <p class="mb-2 text-sm"><strong>Input:</strong> ${fusion.card2.Name}</p>`;
         if (fusion.result) {
             // Equips and Results don't have a result field
-            res += `<p class="card-text"><strong>Result:</strong> ` + fusion.result.Name;
-            res += " (" + fusion.result.Attack + "/" + fusion.result.Defense + ")";
+            res += `<p class="mb-2 text-sm"><strong>Result:</strong> ` + fusion.result.Name;
+            res += " (" + fusion.result.Attack + "/" + fusion.result.Defense + ")</p>";
         }
         return res + `</div></div>`;
     });
@@ -117,10 +116,10 @@ function searchByName() {
                 return { card1: card, card2: getCardById(e) };
             });
 
-            outputRight.innerHTML = "<h2 class='text-center my-4'>Can be equiped</h2>";
+            outputRight.innerHTML = "<h2 class='text-center my-4 font-display text-2xl'>Can be equiped</h2>";
             outputRight.innerHTML += fusesToHTML(equips);
 
-            outputLeft.innerHTML = "<h2 class='text-center my-4'>Fusions</h2>";
+            outputLeft.innerHTML = "<h2 class='text-center my-4 font-display text-2xl'>Fusions</h2>";
             outputLeft.innerHTML += fusesToHTML(fuses);
         }
     }
@@ -143,7 +142,7 @@ function searchForResult() {
                 var results = resultsList[card.Id].map((f) => {
                     return { card1: getCardById(f.card1), card2: getCardById(f.card2) };
                 });
-                outputLeft.innerHTML = "<h2 class='text-center my-4'>Fusions</h2>";
+                outputLeft.innerHTML = "<h2 class='text-center my-4 font-display text-2xl'>Fusions</h2>";
                 outputLeft.innerHTML += fusesToHTML(results);
             }
         }

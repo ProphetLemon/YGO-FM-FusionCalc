@@ -1,5 +1,7 @@
 import { config as loadDotenv } from "dotenv";
 
+export { DEFAULT_LANG, SUPPORTED_LANGS, type Lang } from "../shared/i18n/index.js";
+
 loadDotenv();
 
 const VALID_LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace"] as const;

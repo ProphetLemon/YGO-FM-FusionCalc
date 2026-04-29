@@ -1,0 +1,3 @@
+<% (pageScripts || []).forEach(function (src) { %>
+<script type="<%= src.endsWith('.ts') || src.includes('/dist/') ? 'module' : 'text/javascript' %>" src="<%= src %>"></script>
+<% }) %>

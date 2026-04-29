@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="<%= lang %>">
+    <%- include('../partials/head', { pageTitle, pageStyles }) %>
+    <body class="<%= bodyClass %> font-body flex flex-col min-h-screen">
+        <%- include('../partials/navbar', { activeNav, lang, t }) %>
+        <main class="flex-1">
+            <%- include('../' + contentView, { lang, t, year }) %>
+        </main>
+        <%- include('../partials/footer', { t, year }) %>
+        <%- include('../partials/scripts', { pageScripts }) %>
+    </body>
+</html>

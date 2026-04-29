@@ -67,10 +67,10 @@ The current focus is the migration to the new stack and a redesigned
 calculator. Items below are tracked through SPECs in [.sdd/specs/](.sdd/specs/).
 
 - [x] Node + TypeScript scaffolding and minimal Express server
-- [ ] Migrate pages to EJS templates with layouts and partials
+- [x] Migrate pages to EJS templates with layouts and partials
+- [x] Tailwind-based styling for all pages (legacy Bootstrap retained transitionally for the calculator/search dynamic markup)
+- [x] i18n with Spanish (default) and English
 - [ ] Port client scripts to TypeScript modules; remove jQuery, Bootstrap and TaffyDB
-- [ ] Tailwind-based styling for all pages
-- [ ] i18n with Spanish (default) and English
 - [ ] Dynamic number of slots in the fusion calculator
 - [ ] Chained fusion search (unlimited depth, optimised by final ATK)
 - [ ] In-server domain layer with full unit-test coverage

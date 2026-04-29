@@ -1,35 +1,36 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import cookieParser from "cookie-parser";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { pinoHttp } from "pino-http";
+import { i18nMiddleware } from "./http/middleware/i18n.js";
+import { langRouter } from "./http/routes/lang.js";
+import { legacyRedirectsRouter } from "./http/routes/legacy.js";
+import { viewsRouter } from "./http/routes/views.js";
 import { logger } from "./logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "../..");
 
-const LEGACY_PAGES: Readonly<Record<string, string>> = {
-    "/": "index.html",
-    "/index.html": "index.html",
-    "/fusion-search.html": "fusion-search.html",
-    "/fusion-calculator.html": "fusion-calculator.html",
-    "/about.html": "about.html",
-};
-
 export function createApp(): Express {
     const app = express();
 
     app.disable("x-powered-by");
+    app.set("view engine", "ejs");
+    app.set("views", path.join(projectRoot, "views"));
+
     app.use(pinoHttp({ logger }));
+    app.use(express.urlencoded({ extended: false }));
+    app.use(cookieParser());
+    app.use(i18nMiddleware);
 
     app.use("/public", express.static(path.join(projectRoot, "public")));
     app.use("/data", express.static(path.join(projectRoot, "data")));
 
-    for (const [route, file] of Object.entries(LEGACY_PAGES)) {
-        app.get(route, (_req: Request, res: Response) => {
-            res.sendFile(path.join(projectRoot, file));
-        });
-    }
+    app.use(legacyRedirectsRouter());
+    app.use(langRouter());
+    app.use(viewsRouter());
 
     app.use((_req: Request, res: Response) => {
         res.status(404).type("text/plain").send("Not found");

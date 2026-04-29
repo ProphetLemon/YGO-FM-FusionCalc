@@ -16,8 +16,3 @@ public/styles/
 *.min.css
 
 package-lock.json
-
-index.html
-about.html
-fusion-search.html
-fusion-calculator.html

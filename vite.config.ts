@@ -12,7 +12,12 @@ export default defineConfig({
         emptyOutDir: false,
         manifest: true,
         rollupOptions: {
-            input: {},
+            input: {
+                home: path.resolve(__dirname, "src/client/pages/home.ts"),
+                search: path.resolve(__dirname, "src/client/pages/search.ts"),
+                calculator: path.resolve(__dirname, "src/client/pages/calculator.ts"),
+                about: path.resolve(__dirname, "src/client/pages/about.ts"),
+            },
         },
     },
     resolve: {

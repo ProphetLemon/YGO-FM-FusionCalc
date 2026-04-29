@@ -1,0 +1,16 @@
+<form method="post" action="/lang" class="flex items-center gap-1 font-body" aria-label="<%= t('lang.label') %>">
+    <button
+        type="submit"
+        name="lang"
+        value="es"
+        class="px-2 py-1 text-sm rounded <%= lang === 'es' ? 'bg-fm-primary text-white cursor-default' : 'text-black hover:bg-black/10' %>"
+        <% if (lang === 'es') { %>aria-current="true" disabled<% } %>
+    ><%= t('lang.es') %></button>
+    <button
+        type="submit"
+        name="lang"
+        value="en"
+        class="px-2 py-1 text-sm rounded <%= lang === 'en' ? 'bg-fm-primary text-white cursor-default' : 'text-black hover:bg-black/10' %>"
+        <% if (lang === 'en') { %>aria-current="true" disabled<% } %>
+    ><%= t('lang.en') %></button>
+</form>

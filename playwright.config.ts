@@ -10,6 +10,10 @@ export default defineConfig({
     reporter: process.env.CI ? "list" : "list",
     use: {
         baseURL: `http://localhost:${PORT}`,
+        locale: "es-ES",
+        extraHTTPHeaders: {
+            "accept-language": "es-ES,es;q=0.9",
+        },
         trace: "on-first-retry",
     },
     projects: [
