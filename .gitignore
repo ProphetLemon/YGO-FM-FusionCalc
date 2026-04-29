@@ -46,3 +46,15 @@ Network Trash Folder
 Temporary Items
 .apdisk
 notes.txt
+
+# =========================
+# Node / build outputs
+# =========================
+node_modules/
+dist/
+public/dist/
+.env
+coverage/
+playwright-report/
+test-results/
+.vite/

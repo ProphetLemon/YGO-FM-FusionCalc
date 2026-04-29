@@ -1,0 +1,13 @@
+services:
+    - type: web
+      name: ygo-fm-fusion-calc
+      runtime: node
+      plan: free
+      buildCommand: npm ci && npm run build
+      startCommand: npm start
+      healthCheckPath: /
+      envVars:
+          - key: NODE_ENV
+            value: production
+          - key: LOG_LEVEL
+            value: info
