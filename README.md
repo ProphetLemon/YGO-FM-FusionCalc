@@ -59,6 +59,8 @@ npm run test:e2e  # Playwright end-to-end tests
 Deployed as a single Web Service on [Render](https://render.com) using
 `render.yaml` at the repo root.
 
+Live URL: https://ygo-fm-fusion-calc.onrender.com/
+
 ### Roadmap
 
 The current focus is the migration to the new stack and a redesigned

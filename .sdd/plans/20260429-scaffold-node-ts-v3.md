@@ -2,7 +2,10 @@
 
 SPEC: [.sdd/specs/20260429-scaffold-node-ts.md](../specs/20260429-scaffold-node-ts.md)
 Versión anterior: [20260429-scaffold-node-ts-v2.md](20260429-scaffold-node-ts-v2.md) (APROBADO)
-Estado: APROBADO
+Estado: COMPLETADO
+
+Commits: 60c1cee (implementación), 668eb5d (fix Render).
+Despliegue verificado: https://ygo-fm-fusion-calc.onrender.com/
 
 ## Motivo de la ampliación
 

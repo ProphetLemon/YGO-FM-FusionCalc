@@ -1,7 +1,10 @@
 # SPEC: scaffold-node-ts
 
 Fecha: 2026-04-29
-Estado: APROBADO
+Estado: COMPLETADO
+
+Commits: 60c1cee (implementación), eab22f9 (estado APROBADO), 668eb5d (fix Render).
+Despliegue verificado: https://ygo-fm-fusion-calc.onrender.com/
 
 ## Objetivo
 
