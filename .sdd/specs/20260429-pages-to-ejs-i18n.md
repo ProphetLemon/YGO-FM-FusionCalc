@@ -1,7 +1,10 @@
 # SPEC: pages-to-ejs-i18n
 
 Fecha: 2026-04-29
-Estado: APROBADO
+Estado: COMPLETADO
+
+Commits: c08d1ea (implementación), c283cea (estado APROBADO).
+Despliegue verificado: https://ygo-fm-fusion-calc.onrender.com/
 
 ## Objetivo
 

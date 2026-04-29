@@ -2,7 +2,10 @@
 
 SPEC: [.sdd/specs/20260429-visual-recovery-tailwind-v2.md](../specs/20260429-visual-recovery-tailwind-v2.md)
 Versión anterior: [20260429-visual-recovery-tailwind.md](20260429-visual-recovery-tailwind.md) (APROBADO, sustituida)
-Estado: APROBADO
+Estado: COMPLETADO
+
+Commits: c08d1ea (implementación), c283cea (estado APROBADO).
+Despliegue verificado: https://ygo-fm-fusion-calc.onrender.com/
 
 ## Motivo de la ampliación
 

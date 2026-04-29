@@ -1,7 +1,10 @@
 # PLAN: pages-to-ejs-i18n
 
 SPEC: [.sdd/specs/20260429-pages-to-ejs-i18n.md](../specs/20260429-pages-to-ejs-i18n.md)
-Estado: APROBADO
+Estado: COMPLETADO
+
+Commits: c08d1ea (implementación), c283cea (estado APROBADO).
+Despliegue verificado: https://ygo-fm-fusion-calc.onrender.com/
 
 ## Archivos a modificar
 
