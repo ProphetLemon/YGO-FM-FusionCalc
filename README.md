@@ -68,12 +68,13 @@ calculator. Items below are tracked through SPECs in [.sdd/specs/](.sdd/specs/).
 
 - [x] Node + TypeScript scaffolding and minimal Express server
 - [x] Migrate pages to EJS templates with layouts and partials
-- [x] Tailwind-based styling for all pages (legacy Bootstrap retained transitionally for the calculator/search dynamic markup)
+- [x] Tailwind-based styling for all pages
 - [x] i18n with Spanish (default) and English
-- [ ] Port client scripts to TypeScript modules; remove jQuery, Bootstrap and TaffyDB
+- [x] Port client scripts to TypeScript modules; remove jQuery, Bootstrap and TaffyDB
+- [x] In-server domain layer with full unit-test coverage
+- [x] REST API for cards, fusions, equips, results and calculator
 - [ ] Dynamic number of slots in the fusion calculator
 - [ ] Chained fusion search (unlimited depth, optimised by final ATK)
-- [ ] In-server domain layer with full unit-test coverage
 - [ ] Real card images per card
 - [ ] Filters and sorting by type, ATK/DEF and star
 - [ ] Deck builder persisted in `localStorage`
@@ -90,22 +91,16 @@ documented in [.sdd/context/conventions.md](.sdd/context/conventions.md).
 
 A licence will be added once the rewrite reaches a stable point.
 
-### Project Notes (transitional state)
+### Project Notes
 
-The repository is currently a hybrid: the new Node/TS server in `src/server/`
-serves the legacy static assets (`index.html`, `fusion-search.html`,
-`fusion-calculator.html`, `about.html` plus `public/` and `data/`) untouched,
-to keep the app working during the rewrite.
+Server-rendered Express + EJS app with a TypeScript client. Domain logic
+lives under [src/server/domain/](src/server/domain/); JSON data is loaded
+into memory on boot from [src/server/data/store.ts](src/server/data/store.ts).
+The client (in [src/client/](src/client/)) consumes a REST API under `/api/`.
 
-Legacy assets that will be removed in upcoming SPECs:
-
-- `public/javascripts/{jquery,bootstrap,taffy,awesomplete}*.js` — vendored libraries.
-- `public/javascripts/fusionCalc.js`, `fusionSearch.js` — to be ported to TypeScript modules.
-- `public/styles/bootstrap.min.css` — to be replaced by Tailwind.
-- `scripts/*.rb` — Ruby scripts that regenerate `data/*.json` derivatives from `Cards.json`; they will be rewritten as TypeScript scripts under `src/scripts/`.
-
-Data files in `data/` (`Cards.json` and the generated `fusions.json`,
-`equips.json`, `results.json`) remain the source of truth for the game data.
+The Ruby scripts under [scripts/](scripts/) regenerate the derived data
+files from `data/Cards.json` and will be rewritten in TypeScript in a
+future SPEC.
 
 ## Special Thanks
 

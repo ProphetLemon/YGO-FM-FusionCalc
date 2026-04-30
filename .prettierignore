@@ -9,9 +9,6 @@ test-results/
 
 data/
 
-public/javascripts/
-public/styles/
-
 *.min.js
 *.min.css
 
