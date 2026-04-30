@@ -24,8 +24,7 @@ describe("view routes", () => {
         expect(res.status).toBe(200);
         expect(res.text).toContain('id="cardname"');
         expect(res.text).not.toContain("/public/styles/bootstrap.min.css");
-        expect(res.text).toContain("/public/styles/awesomplete.css");
-        expect(res.text).toContain("/public/javascripts/fusionSearch.js");
+        expect(res.text).not.toContain("/public/javascripts/fusionSearch.js");
     });
 
     it("renders calculator page with five hand inputs", async () => {
@@ -34,7 +33,7 @@ describe("view routes", () => {
         for (let i = 1; i <= 5; i++) {
             expect(res.text).toContain(`id="hand${i}"`);
         }
-        expect(res.text).toContain("/public/javascripts/fusionCalc.js");
+        expect(res.text).not.toContain("/public/javascripts/fusionCalc.js");
     });
 
     it("renders about page", async () => {

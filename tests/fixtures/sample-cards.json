@@ -1,0 +1,62 @@
+[
+    {
+        "Id": 1,
+        "Name": "Blue-eyes White Dragon",
+        "Description": "Sample dragon",
+        "Type": 0,
+        "Attack": 3000,
+        "Defense": 2500,
+        "Stars": 999999,
+        "CardCode": "89631139",
+        "Equip": null,
+        "Fusions": []
+    },
+    {
+        "Id": 2,
+        "Name": "Mystical Elf",
+        "Description": "Sample spellcaster",
+        "Type": 1,
+        "Attack": 800,
+        "Defense": 2000,
+        "Stars": 160,
+        "CardCode": "15025844",
+        "Equip": null,
+        "Fusions": [{ "_card1": 2, "_card2": 8, "_result": 638 }]
+    },
+    {
+        "Id": 8,
+        "Name": "Mountain Warrior",
+        "Description": "Sample warrior",
+        "Type": 3,
+        "Attack": 600,
+        "Defense": 1000,
+        "Stars": 5,
+        "CardCode": "00000008",
+        "Equip": [99],
+        "Fusions": []
+    },
+    {
+        "Id": 99,
+        "Name": "Sword of Light",
+        "Description": "Sample equip",
+        "Type": 23,
+        "Attack": 0,
+        "Defense": 0,
+        "Stars": 0,
+        "CardCode": "00000099",
+        "Equip": [8],
+        "Fusions": []
+    },
+    {
+        "Id": 638,
+        "Name": "Sample Fusion Result",
+        "Description": "A fused monster",
+        "Type": 0,
+        "Attack": 2500,
+        "Defense": 2000,
+        "Stars": 100,
+        "CardCode": "00000638",
+        "Equip": null,
+        "Fusions": []
+    }
+]

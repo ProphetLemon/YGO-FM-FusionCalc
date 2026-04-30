@@ -3,7 +3,9 @@ import { fileURLToPath } from "node:url";
 import cookieParser from "cookie-parser";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { pinoHttp } from "pino-http";
+import { loadStore } from "./data/store.js";
 import { i18nMiddleware } from "./http/middleware/i18n.js";
+import { apiRouter } from "./http/routes/api.js";
 import { langRouter } from "./http/routes/lang.js";
 import { legacyRedirectsRouter } from "./http/routes/legacy.js";
 import { viewsRouter } from "./http/routes/views.js";
@@ -14,6 +16,8 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "../..");
 
 export function createApp(): Express {
+    loadStore();
+
     const app = express();
 
     app.disable("x-powered-by");
@@ -28,6 +32,7 @@ export function createApp(): Express {
     app.use("/public", express.static(path.join(projectRoot, "public")));
     app.use("/data", express.static(path.join(projectRoot, "data")));
 
+    app.use("/api", apiRouter());
     app.use(legacyRedirectsRouter());
     app.use(langRouter());
     app.use(viewsRouter());

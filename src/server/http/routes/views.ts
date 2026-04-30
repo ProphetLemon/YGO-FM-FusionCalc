@@ -1,4 +1,5 @@
 import { type Request, type Response, Router } from "express";
+import { getCatalog } from "../../../shared/i18n/index.js";
 import { assetUrl } from "../assets.js";
 
 interface PageOptions {
@@ -16,40 +17,10 @@ function renderPage(res: Response, locals: PageOptions): void {
         pageScripts: [],
         bodyClass: "",
         year: new Date().getFullYear(),
+        catalog: getCatalog(res.locals.lang),
         ...locals,
     });
 }
-
-const LEGACY_SEARCH_STYLES = ["/public/styles/normalize.css", "/public/styles/awesomplete.css"] as const;
-
-const LEGACY_CALCULATOR_STYLES = [
-    "/public/styles/normalize.css",
-    "/public/styles/fusioncustom.css",
-    "/public/styles/awesomplete.css",
-] as const;
-
-const LEGACY_SEARCH_SCRIPTS = [
-    "/public/javascripts/awesomplete.min.js",
-    "/public/javascripts/jquery-3.5.1.min.js",
-    "/public/javascripts/taffy.js",
-    "/data/cards.js",
-    "/data/fusions.js",
-    "/data/equips.js",
-    "/data/results.js",
-    "/data/types_and_stars.js",
-    "/public/javascripts/fusionSearch.js",
-] as const;
-
-const LEGACY_CALCULATOR_SCRIPTS = [
-    "/public/javascripts/awesomplete.min.js",
-    "/public/javascripts/jquery-3.5.1.min.js",
-    "/public/javascripts/taffy.js",
-    "/data/cards.js",
-    "/data/fusions.js",
-    "/data/equips.js",
-    "/data/types_and_stars.js",
-    "/public/javascripts/fusionCalc.js",
-] as const;
 
 function tryAssetUrl(entry: string): string | null {
     try {
@@ -79,8 +50,7 @@ export function viewsRouter(): Router {
             pageTitle: res.locals.t("page.search.title"),
             activeNav: "search",
             bodyClass: "bg-polymerization text-fm-primary",
-            pageStyles: LEGACY_SEARCH_STYLES,
-            pageScripts: [...LEGACY_SEARCH_SCRIPTS, ...(searchBundle ? [searchBundle] : [])],
+            pageScripts: searchBundle ? [searchBundle] : [],
         });
     });
 
@@ -91,8 +61,7 @@ export function viewsRouter(): Router {
             pageTitle: res.locals.t("page.calculator.title"),
             activeNav: "calculator",
             bodyClass: "bg-polymerization text-fm-primary",
-            pageStyles: LEGACY_CALCULATOR_STYLES,
-            pageScripts: [...LEGACY_CALCULATOR_SCRIPTS, ...(calculatorBundle ? [calculatorBundle] : [])],
+            pageScripts: calculatorBundle ? [calculatorBundle] : [],
         });
     });
 
