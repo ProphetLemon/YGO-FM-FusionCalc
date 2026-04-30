@@ -1,27 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
     MIN_HAND_SIZE,
-    MAX_HAND_SIZE,
-    canAddSlot,
     canRemoveSlot,
     getValidIds,
 } from "../../../src/client/lib/slots.js";
 
-describe("canAddSlot", () => {
-    it("allows adding when below max", () => {
-        expect(canAddSlot(MIN_HAND_SIZE)).toBe(true);
-        expect(canAddSlot(MAX_HAND_SIZE - 1)).toBe(true);
-    });
-
-    it("blocks adding when at max", () => {
-        expect(canAddSlot(MAX_HAND_SIZE)).toBe(false);
-    });
-});
-
 describe("canRemoveSlot", () => {
     it("allows removing when above min", () => {
         expect(canRemoveSlot(MIN_HAND_SIZE + 1)).toBe(true);
-        expect(canRemoveSlot(MAX_HAND_SIZE)).toBe(true);
+        expect(canRemoveSlot(10)).toBe(true);
     });
 
     it("blocks removing when at min", () => {

@@ -11,13 +11,6 @@ test("add slot button increases slot count", async ({ page }) => {
     await expect(page.locator(".hand-slot")).toHaveCount(3);
 });
 
-test("add slot button disables at max hand size", async ({ page }) => {
-    await page.goto("/calculator");
-    for (let i = 0; i < 3; i++) await page.locator("#addSlotBtn").click();
-    await expect(page.locator(".hand-slot")).toHaveCount(5);
-    await expect(page.locator("#addSlotBtn")).toBeDisabled();
-});
-
 test("remove slot buttons are hidden at minimum slots", async ({ page }) => {
     await page.goto("/calculator");
     const removeBtns = page.locator(".hand-slot button");

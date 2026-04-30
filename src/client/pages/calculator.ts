@@ -2,7 +2,7 @@ import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
 import { renderPair } from "../components/fusion-card.js";
 import { calculate, getCardByName, getCardsIndex } from "../lib/api.js";
-import { MIN_HAND_SIZE, canAddSlot, canRemoveSlot, getValidIds } from "../lib/slots.js";
+import { MIN_HAND_SIZE, canRemoveSlot, getValidIds } from "../lib/slots.js";
 import { clear, qs } from "../lib/dom.js";
 import { t } from "../lib/i18n.js";
 
@@ -53,12 +53,6 @@ async function mountCalculatorPage(): Promise<void> {
             slot.removeBtn.disabled = !removable;
             slot.removeBtn.classList.toggle("hidden", !removable);
         }
-    };
-
-    const updateAddBtn = (): void => {
-        const addable = canAddSlot(slots.length);
-        addBtn.disabled = !addable;
-        addBtn.setAttribute("aria-disabled", String(!addable));
     };
 
     const updateInfo = async (slot: SlotState): Promise<void> => {
@@ -118,12 +112,10 @@ async function mountCalculatorPage(): Promise<void> {
             slots.splice(idx, 1);
             slotsContainer.removeChild(row);
             updateRemoveBtns();
-            updateAddBtn();
             void refresh();
         });
 
         updateRemoveBtns();
-        updateAddBtn();
     };
 
     addBtn.addEventListener("click", addSlot);
