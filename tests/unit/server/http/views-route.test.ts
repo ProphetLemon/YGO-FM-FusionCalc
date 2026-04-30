@@ -27,12 +27,11 @@ describe("view routes", () => {
         expect(res.text).not.toContain("/public/javascripts/fusionSearch.js");
     });
 
-    it("renders calculator page with five hand inputs", async () => {
+    it("renders calculator page with dynamic slots container", async () => {
         const res = await request(app).get("/calculator");
         expect(res.status).toBe(200);
-        for (let i = 1; i <= 5; i++) {
-            expect(res.text).toContain(`id="hand${i}"`);
-        }
+        expect(res.text).toContain('id="hand-slots"');
+        expect(res.text).toContain('id="addSlotBtn"');
         expect(res.text).not.toContain("/public/javascripts/fusionCalc.js");
     });
 
