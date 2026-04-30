@@ -1,7 +1,10 @@
 # SPEC: client-port-domain-api
 
 Fecha: 2026-04-29
-Estado: APROBADO
+Estado: COMPLETADO
+
+Commits: d8a5bab (implementación), 2d574a7 (limpieza config/README), 7bb49b9 (estado APROBADO).
+Despliegue verificado: https://ygo-fm-fusion-calc.onrender.com/
 
 ## Objetivo
 

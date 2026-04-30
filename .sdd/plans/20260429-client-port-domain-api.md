@@ -1,7 +1,10 @@
 # PLAN: client-port-domain-api
 
 SPEC: [.sdd/specs/20260429-client-port-domain-api.md](../specs/20260429-client-port-domain-api.md)
-Estado: APROBADO
+Estado: COMPLETADO
+
+Commits: d8a5bab (implementación), 2d574a7 (limpieza config/README), 7bb49b9 (estado APROBADO).
+Despliegue verificado: https://ygo-fm-fusion-calc.onrender.com/
 
 ## Archivos a modificar
 
