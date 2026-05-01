@@ -8,7 +8,7 @@
         "node": "24.x"
     },
     "scripts": {
-        "dev": "tsx watch src/server/index.ts",
+        "dev": "nodemon",
         "build": "npm run typecheck && npm run build:client && npm run build:css && npm run build:server",
         "build:server": "tsc -p tsconfig.server.json",
         "build:client": "vite build",
@@ -37,6 +37,7 @@
         "@types/node": "^24.0.0",
         "@types/supertest": "^6.0.3",
         "@vitest/coverage-v8": "^3.0.0",
+        "nodemon": "^3.1.14",
         "prettier": "^3.4.0",
         "supertest": "^7.2.2",
         "tailwindcss": "^4.0.0",

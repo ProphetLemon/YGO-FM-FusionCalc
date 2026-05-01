@@ -1,0 +1,5 @@
+{
+    "exec": "tsx src/server/index.ts",
+    "ext": "ts,json,ejs",
+    "ignore": ["src/client/**", "tests/**", "dist/**", "public/dist/**"]
+}
