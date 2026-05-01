@@ -1,4 +1,5 @@
 import type { CardSummary, EquipExpanded, FusionExpanded, ResultExpanded } from "../../shared/types.js";
+import { createCardImg } from "../lib/card-image.js";
 import { t } from "../lib/i18n.js";
 
 interface PairWithOptionalResult {
@@ -13,23 +14,30 @@ export function renderPair(entry: FusionExpanded | EquipExpanded | ResultExpande
     div.className =
         "block rounded-lg border border-black bg-white text-fm-primary shadow-sm p-4 mb-3 max-w-xs";
 
-    div.appendChild(makeLine(t("card.label.input"), data.card1.name));
-    div.appendChild(makeLine(t("card.label.input"), data.card2.name));
+    div.appendChild(makeCardLine(t("card.label.input"), data.card1));
+    div.appendChild(makeCardLine(t("card.label.input"), data.card2));
     if (data.result) {
         const detail = data.result.isMonster
             ? `${data.result.name} (${data.result.attack}/${data.result.defense})`
             : `${data.result.name} [${data.result.typeName}]`;
-        div.appendChild(makeLine(t("card.label.result"), detail));
+        div.appendChild(makeCardLine(t("card.label.result"), data.result, detail));
     }
     return div;
 }
 
-function makeLine(label: string, value: string): HTMLParagraphElement {
+function makeCardLine(label: string, card: CardSummary, overrideText?: string): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "flex items-center gap-2 mb-2";
+
+    row.appendChild(createCardImg(card.name, card.password, "w-10 h-14 flex-shrink-0"));
+
     const p = document.createElement("p");
-    p.className = "mb-1 text-sm";
+    p.className = "text-sm min-w-0";
     const strong = document.createElement("strong");
     strong.textContent = `${label}: `;
     p.appendChild(strong);
-    p.appendChild(document.createTextNode(value));
-    return p;
+    p.appendChild(document.createTextNode(overrideText ?? card.name));
+    row.appendChild(p);
+
+    return row;
 }
