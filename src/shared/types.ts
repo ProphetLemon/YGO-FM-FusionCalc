@@ -73,3 +73,18 @@ export interface CalculatorResponse {
     fusions: FusionExpanded[];
     equips: EquipExpanded[];
 }
+
+export interface FusionStep {
+    card1: CardSummary;
+    card2: CardSummary;
+    result: CardSummary;
+}
+
+export interface ChainResult {
+    steps: FusionStep[];
+    finalCard: CardSummary;
+}
+
+export interface ChainSearchResponse {
+    chains: ChainResult[];
+}
