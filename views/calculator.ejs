@@ -29,4 +29,21 @@
             <div id="outputarearight"></div>
         </div>
     </section>
+
+    <section class="bg-white/95 text-fm-primary rounded-lg p-6 shadow-lg mt-6">
+        <h4 class="font-display text-2xl md:text-3xl text-center my-4">
+            <%= t('calculator.chain.title') %>
+        </h4>
+        <div class="flex justify-center mb-4">
+            <button
+                type="button"
+                id="chainBtn"
+                class="px-4 py-2 bg-fm-primary text-white rounded hover:bg-fm-primary/80 font-display text-sm"
+            >
+                <%= t('calculator.chain.btn') %>
+            </button>
+        </div>
+        <p id="chain-loading" class="text-center font-body hidden"></p>
+        <div id="chain-output"></div>
+    </section>
 </div>

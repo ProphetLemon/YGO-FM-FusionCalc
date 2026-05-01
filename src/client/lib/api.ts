@@ -2,6 +2,7 @@ import type {
     CalculatorResponse,
     CardIndexEntry,
     CardSummary,
+    ChainSearchResponse,
     EquipExpanded,
     FusionExpanded,
     ResultExpanded,
@@ -70,6 +71,14 @@ export async function getResults(id: number): Promise<ResultExpanded[] | null> {
 
 export async function calculate(handIds: number[]): Promise<CalculatorResponse> {
     return fetchJson<CalculatorResponse>("/api/calculator", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handIds }),
+    });
+}
+
+export async function chainSearch(handIds: number[]): Promise<ChainSearchResponse> {
+    return fetchJson<ChainSearchResponse>("/api/chain-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ handIds }),

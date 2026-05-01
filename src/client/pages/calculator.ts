@@ -1,7 +1,8 @@
 import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
 import { renderPair } from "../components/fusion-card.js";
-import { calculate, getCardByName, getCardsIndex } from "../lib/api.js";
+import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
+import type { ChainResult } from "../../shared/types.js";
 import { MIN_HAND_SIZE, canRemoveSlot, getValidIds } from "../lib/slots.js";
 import { clear, qs } from "../lib/dom.js";
 import { t } from "../lib/i18n.js";
@@ -118,6 +119,48 @@ async function mountCalculatorPage(): Promise<void> {
         updateRemoveBtns();
     };
 
+    const chainBtn = qs<HTMLButtonElement>("#chainBtn");
+    const chainLoading = qs<HTMLElement>("#chain-loading");
+    const chainOutput = qs<HTMLElement>("#chain-output");
+
+    if (chainBtn && chainLoading && chainOutput) {
+        chainBtn.addEventListener("click", () => {
+            void runChainSearch(chainOutput, chainLoading);
+        });
+    }
+
+    async function runChainSearch(output: HTMLElement, loading: HTMLElement): Promise<void> {
+        clear(output);
+        const handIds = getValidIds(
+            slots.map((s) => s.input.value),
+            idsByNameLower
+        );
+        if (handIds.length < 2) {
+            output.textContent = t("calculator.chain.no-result");
+            return;
+        }
+        loading.textContent = t("calculator.chain.loading");
+        loading.classList.remove("hidden");
+        try {
+            const res = await chainSearch(handIds);
+            loading.classList.add("hidden");
+            if (res.chains.length === 0) {
+                output.textContent = t("calculator.chain.no-result");
+                return;
+            }
+            for (const chain of res.chains) {
+                output.appendChild(renderChain(chain));
+            }
+        } catch (err) {
+            loading.classList.add("hidden");
+            if (err instanceof ApiError && err.status === 400) {
+                output.textContent = t("calculator.chain.hand-too-large", { max: "12" });
+            } else {
+                output.textContent = t("calculator.chain.no-result");
+            }
+        }
+    }
+
     addBtn.addEventListener("click", addSlot);
 
     resetBtn?.addEventListener("click", () => {
@@ -137,4 +180,20 @@ function appendHeader(where: HTMLElement, label: string): void {
     h2.className = "text-center my-4 font-display text-2xl";
     h2.textContent = label;
     where.appendChild(h2);
+}
+
+function renderChain(chain: ChainResult): HTMLElement {
+    const div = document.createElement("div");
+    div.className = "mb-6 p-4 border border-fm-primary/20 rounded";
+    for (const [i, step] of chain.steps.entries()) {
+        const p = document.createElement("p");
+        p.className = "font-body text-sm mb-1";
+        p.textContent = `${t("calculator.chain.step", { n: i + 1 })}: ${step.card1.name} + ${step.card2.name} → ${step.result.name} (${step.result.attack} ATK)`;
+        div.appendChild(p);
+    }
+    const summary = document.createElement("p");
+    summary.className = "font-display text-sm mt-2 font-bold";
+    summary.textContent = t("calculator.chain.final-atk", { atk: String(chain.finalCard.attack) });
+    div.appendChild(summary);
+    return div;
 }
