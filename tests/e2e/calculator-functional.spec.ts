@@ -13,7 +13,7 @@ test("add slot button increases slot count", async ({ page }) => {
 
 test("remove slot buttons are hidden at minimum slots", async ({ page }) => {
     await page.goto("/calculator");
-    const removeBtns = page.locator(".hand-slot button");
+    const removeBtns = page.locator(".remove-btn");
     await expect(removeBtns.first()).toBeHidden();
 });
 
@@ -21,7 +21,7 @@ test("remove slot button decreases slot count", async ({ page }) => {
     await page.goto("/calculator");
     await page.locator("#addSlotBtn").click();
     await expect(page.locator(".hand-slot")).toHaveCount(3);
-    await page.locator(".hand-slot button").first().click();
+    await page.locator(".remove-btn").first().click();
     await expect(page.locator(".hand-slot")).toHaveCount(2);
 });
 
