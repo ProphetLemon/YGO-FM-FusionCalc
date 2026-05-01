@@ -54,3 +54,21 @@ test("reset keeps current slot count", async ({ page }) => {
     await page.locator("#resetBtn").click();
     await expect(page.locator(".hand-slot")).toHaveCount(3);
 });
+
+test("chain search finds a result for a known fusable pair", async ({ page }) => {
+    await page.goto("/calculator");
+    const hand1 = page.locator(".hand-slot").nth(0).locator("input");
+    const hand2 = page.locator(".hand-slot").nth(1).locator("input");
+    await hand1.fill("Mystical Elf");
+    await hand1.dispatchEvent("change");
+    await hand2.fill("Mushroom Man");
+    await hand2.dispatchEvent("change");
+    await page.locator("#chainBtn").click();
+    await expect(page.locator("#chain-output")).not.toBeEmpty({ timeout: 5000 });
+});
+
+test("chain search shows no-result message for empty hand", async ({ page }) => {
+    await page.goto("/calculator");
+    await page.locator("#chainBtn").click();
+    await expect(page.locator("#chain-output")).not.toBeEmpty({ timeout: 3000 });
+});
