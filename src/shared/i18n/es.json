@@ -48,6 +48,7 @@
     "calculator.btn.add-slot": "Añadir carta",
     "calculator.btn.remove-slot": "Eliminar ranura",
     "calculator.slot.label": "Carta {{n}}",
+    "calculator.slot.empty": "Buscar carta",
     "calculator.results.title": "Resultados",
     "calculator.chain.title": "Cadena óptima de fusiones",
     "calculator.chain.btn": "Calcular cadena",

@@ -48,6 +48,7 @@
     "calculator.btn.add-slot": "Add card",
     "calculator.btn.remove-slot": "Remove slot",
     "calculator.slot.label": "Card {{n}}",
+    "calculator.slot.empty": "Search card",
     "calculator.results.title": "Results",
     "calculator.chain.title": "Optimal fusion chain",
     "calculator.chain.btn": "Calculate chain",

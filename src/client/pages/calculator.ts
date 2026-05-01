@@ -2,15 +2,20 @@ import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
 import { renderPair } from "../components/fusion-card.js";
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
-import type { ChainResult } from "../../shared/types.js";
+import type { CardSummary, ChainResult } from "../../shared/types.js";
 import { MIN_HAND_SIZE, canRemoveSlot, getValidIds } from "../lib/slots.js";
+import { createCardImg } from "../lib/card-image.js";
 import { clear, qs } from "../lib/dom.js";
 import { t } from "../lib/i18n.js";
 
 interface SlotState {
-    row: HTMLElement;
+    cell: HTMLElement;
     input: HTMLInputElement;
-    info: HTMLSpanElement;
+    emptyState: HTMLElement;
+    filledState: HTMLElement;
+    imgWrapper: HTMLElement;
+    nameLabel: HTMLElement;
+    clearBtn: HTMLButtonElement;
     removeBtn: HTMLButtonElement;
 }
 
@@ -51,67 +56,139 @@ async function mountCalculatorPage(): Promise<void> {
     const updateRemoveBtns = (): void => {
         const removable = canRemoveSlot(slots.length);
         for (const slot of slots) {
-            slot.removeBtn.disabled = !removable;
             slot.removeBtn.classList.toggle("hidden", !removable);
         }
     };
 
-    const updateInfo = async (slot: SlotState): Promise<void> => {
-        slot.info.textContent = "";
+    function setSlotCard(slot: SlotState, card: CardSummary | null): void {
+        if (card) {
+            slot.imgWrapper.innerHTML = "";
+            slot.imgWrapper.appendChild(
+                createCardImg(card.name, card.password, "w-full h-full object-contain")
+            );
+            slot.nameLabel.textContent = card.name;
+            slot.input.value = card.name;
+            slot.emptyState.classList.add("hidden");
+            slot.filledState.classList.remove("hidden");
+        } else {
+            slot.imgWrapper.innerHTML = "";
+            slot.nameLabel.textContent = "";
+            slot.input.value = "";
+            slot.filledState.classList.add("hidden");
+            slot.emptyState.classList.remove("hidden");
+        }
+    }
+
+    const updateSlotCard = async (slot: SlotState): Promise<void> => {
         const value = slot.input.value.trim();
-        if (value === "") return;
-        const card = await getCardByName(value);
-        if (!card) {
-            slot.info.textContent = t("card.label.invalid");
+        if (!value) {
+            setSlotCard(slot, null);
             return;
         }
-        slot.info.textContent = card.isMonster
-            ? `(${card.attack}/${card.defense}) [${card.typeName}]`
-            : `[${card.typeName}]`;
+        const card = await getCardByName(value);
+        setSlotCard(slot, card ?? null);
     };
 
     const addSlot = (): void => {
         const n = slots.length + 1;
 
-        const row = document.createElement("div");
-        row.className = "hand-slot flex flex-wrap items-center gap-2";
+        const cell = document.createElement("div");
+        cell.className = "hand-slot flex flex-col items-center";
+
+        // Empty state
+        const emptyState = document.createElement("div");
+        emptyState.className =
+            "slot-empty w-full aspect-[2/3] border-2 border-dashed border-fm-primary/40 " +
+            "rounded flex flex-col items-center justify-center gap-1 p-2 cursor-text";
+
+        const plusIcon = document.createElement("span");
+        plusIcon.className = "text-2xl text-fm-primary/40 select-none";
+        plusIcon.textContent = "+";
+
+        const emptyLabel = document.createElement("span");
+        emptyLabel.className = "text-xs text-fm-primary/40 font-body text-center";
+        emptyLabel.textContent = t("calculator.slot.empty");
 
         const input = document.createElement("input");
         input.type = "text";
-        input.className = "flex-1 min-w-0 px-3 py-2 border border-fm-primary/30 rounded font-body";
+        input.className =
+            "w-full text-xs px-2 py-1 border border-fm-primary/30 rounded font-body bg-white/80 mt-1";
         input.setAttribute("aria-label", t("calculator.slot.label", { n }));
 
-        const info = document.createElement("span");
-        info.className = "font-body";
+        emptyState.appendChild(plusIcon);
+        emptyState.appendChild(emptyLabel);
+        emptyState.appendChild(input);
 
+        // Filled state
+        const filledState = document.createElement("div");
+        filledState.className = "slot-filled hidden w-full";
+
+        const imgAspect = document.createElement("div");
+        imgAspect.className = "w-full aspect-[2/3] relative rounded overflow-hidden";
+
+        const imgWrapper = document.createElement("div");
+        imgWrapper.className = "w-full h-full";
+
+        const clearBtn = document.createElement("button");
+        clearBtn.type = "button";
+        clearBtn.className =
+            "clear-btn absolute top-1 right-1 z-10 w-5 h-5 bg-rose-600 text-white " +
+            "rounded-full text-xs flex items-center justify-center hover:bg-rose-500 leading-none";
+        clearBtn.textContent = "×";
+        clearBtn.setAttribute("aria-label", `${t("calculator.btn.remove-slot")} ${n}`);
+
+        imgAspect.appendChild(imgWrapper);
+        imgAspect.appendChild(clearBtn);
+        filledState.appendChild(imgAspect);
+
+        const nameLabel = document.createElement("p");
+        nameLabel.className =
+            "slot-name text-xs text-center font-body mt-1 leading-tight line-clamp-2";
+        filledState.appendChild(nameLabel);
+
+        // Remove slot button (below both states, only when canRemoveSlot)
         const removeBtn = document.createElement("button");
         removeBtn.type = "button";
         removeBtn.className =
-            "px-2 py-1 text-sm bg-rose-600 text-white rounded hover:bg-rose-500 font-display";
-        removeBtn.textContent = "×";
+            "remove-btn hidden mt-1 text-xs text-rose-600 hover:text-rose-500 font-body underline";
+        removeBtn.textContent = `− ${t("calculator.btn.remove-slot")}`;
         removeBtn.setAttribute("aria-label", `${t("calculator.btn.remove-slot")} ${n}`);
 
-        row.appendChild(input);
-        row.appendChild(info);
-        row.appendChild(removeBtn);
-        slotsContainer.appendChild(row);
+        cell.appendChild(emptyState);
+        cell.appendChild(filledState);
+        cell.appendChild(removeBtn);
+        slotsContainer.appendChild(cell);
 
-        const state: SlotState = { row, input, info, removeBtn };
+        const state: SlotState = {
+            cell,
+            input,
+            emptyState,
+            filledState,
+            imgWrapper,
+            nameLabel,
+            clearBtn,
+            removeBtn,
+        };
         slots.push(state);
 
         new Autocomplete(input, {
             fetchList: () =>
                 Promise.resolve([...namesById.values()].sort((a, b) => a.localeCompare(b))),
-            onSelect: () => void updateInfo(state).then(refresh),
+            onSelect: () => void updateSlotCard(state).then(refresh),
         });
 
-        input.addEventListener("change", () => void updateInfo(state).then(refresh));
+        input.addEventListener("change", () => void updateSlotCard(state).then(refresh));
+
+        clearBtn.addEventListener("click", () => {
+            setSlotCard(state, null);
+            void refresh();
+        });
 
         removeBtn.addEventListener("click", () => {
             const idx = slots.indexOf(state);
             if (idx === -1) return;
             slots.splice(idx, 1);
-            slotsContainer.removeChild(row);
+            slotsContainer.removeChild(cell);
             updateRemoveBtns();
             void refresh();
         });
@@ -164,10 +241,7 @@ async function mountCalculatorPage(): Promise<void> {
     addBtn.addEventListener("click", addSlot);
 
     resetBtn?.addEventListener("click", () => {
-        for (const slot of slots) {
-            slot.input.value = "";
-            slot.info.textContent = "";
-        }
+        for (const slot of slots) setSlotCard(slot, null);
         clear(outputLeft);
         clear(outputRight);
     });
