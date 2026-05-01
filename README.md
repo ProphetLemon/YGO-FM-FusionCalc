@@ -1,36 +1,26 @@
-## Yu-Gi-Oh! Forbidden Memories Fusion Calculator
+# Yu-Gi-Oh! Forbidden Memories — Calculadora de Fusiones
 
-Version: 0.9.0
+Versión: 0.9.0
 
-Yu-Gi-Oh! Forbidden Memories is a terrible game with a terrible mechanic called
-"fusions." Fusions allow the player to fuse two cards together to get a new,
-hopefully more powerful card.
+Yu-Gi-Oh! Forbidden Memories tiene cientos de fusiones posibles entre sus más de 720 cartas. El juego no te dice cuáles son, y descubrirlas a mano sería interminable. Esta calculadora te ayuda a sacar el máximo partido a tu mano y planificar tus jugadas.
 
-But, since it's a terrible game, YGO:FM does nothing to actually _tell_ you
-about the fusions. Your options are to either try every card against every other
-card (and by the way there's over 720 cards in the game) or to look it up
-online. Oh, and the game doesn't try to record the fusions at all. And since
-one card might fuse with a few _hundred_ other cards, trying to find out which
-ones are worth it is tedious.
+Basada en el proyecto original de [Solumin](https://github.com/Solumin/YGO-FM-FusionCalc), adaptada y extendida por Diego Vidal del Rosal.
 
-The real motivation for this project is Giver336's LP of the game on Something
-Awful. His co-commentator, General Yeti, mused about the possibility of a
-program to find the fusions for you. Here it is!
+---
 
-### About this fork
+## Funcionalidades
 
-This repository is a fork of [Solumin/YGO-FM-FusionCalc](https://github.com/Solumin/YGO-FM-FusionCalc)
-maintained by Diego Vidal del Rosal. It is undergoing a full rewrite from a
-static site (jQuery + Bootstrap + TaffyDB, hosted on GitHub Pages) to a
-server-rendered Node.js app (Express + EJS + TypeScript + Tailwind, deployed
-on Render).
+- **Buscador de fusiones** — busca todas las fusiones y equipos posibles para una carta concreta.
+- **Calculadora de mano** — introduce tu mano completa y obtén todas las fusiones y equipos disponibles al instante.
+- **Cadena óptima de fusiones** — encuentra la secuencia de fusiones que maximiza el ATK del resultado final.
+- **Imágenes de carta** — artwork real de cada carta vía CDN de YGOProDeck.
+- **i18n** — interfaz disponible en español e inglés.
 
-The rewrite is done in incremental steps under a Spec-Driven Development
-process; see [.sdd/](.sdd/) for the SPECs and PLANs that drive each change.
+---
 
-### How to run locally
+## Ejecutar en local
 
-Requirements: Node 24 (see `.nvmrc`).
+Requisito: Node 24 (ver `.nvmrc`).
 
 ```sh
 nvm use
@@ -38,76 +28,77 @@ npm install
 npm run dev
 ```
 
-The app will be available at http://localhost:3000.
+La app estará disponible en http://localhost:3000.
 
-### Build and start (production-like)
+`npm run dev` usa **nodemon** y reinicia el servidor automáticamente al modificar archivos del servidor, plantillas EJS o i18n. Para recompilar el cliente tras cambios en `src/client/`, ejecuta `npm run build:client`.
+
+---
+
+## Build y arranque (modo producción)
 
 ```sh
 npm run build
 npm start
 ```
 
-### Tests
+---
+
+## Tests
 
 ```sh
-npm test          # Vitest unit tests with coverage
-npm run test:e2e  # Playwright end-to-end tests
+npm test          # Tests unitarios Vitest con cobertura
+npm run test:e2e  # Tests end-to-end con Playwright
 ```
 
-### Deployment
+---
 
-Deployed as a single Web Service on [Render](https://render.com) using
-`render.yaml` at the repo root.
+## Despliegue
 
-Live URL: https://ygo-fm-fusion-calc.onrender.com/
+Desplegado como Web Service en [Render](https://render.com) usando `render.yaml`.
 
-### Roadmap
+URL: https://ygo-fm-fusion-calc.onrender.com/
 
-The current focus is the migration to the new stack and a redesigned
-calculator. Items below are tracked through SPECs in [.sdd/specs/](.sdd/specs/).
+---
 
-- [x] Node + TypeScript scaffolding and minimal Express server
-- [x] Migrate pages to EJS templates with layouts and partials
-- [x] Tailwind-based styling for all pages
-- [x] i18n with Spanish (default) and English
-- [x] Port client scripts to TypeScript modules; remove jQuery, Bootstrap and TaffyDB
-- [x] In-server domain layer with full unit-test coverage
-- [x] REST API for cards, fusions, equips, results and calculator
-- [ ] Dynamic number of slots in the fusion calculator
-- [ ] Chained fusion search (unlimited depth, optimised by final ATK)
-- [ ] Real card images per card
-- [ ] Filters and sorting by type, ATK/DEF and star
-- [ ] Deck builder persisted in `localStorage`
-- [ ] Detailed card view
-- [ ] Fuzzy search
-- [ ] Export / import of hands
-- [ ] PWA / offline support
+## Arquitectura
 
-### Contributing
+App Express + EJS renderizada en servidor con cliente TypeScript compilado con Vite.
 
-The project is mid-rewrite, so external contributions are paused until the
-new stack lands. After that, PRs are welcome — they must follow the SDD flow
-documented in [.sdd/context/conventions.md](.sdd/context/conventions.md).
+- `src/server/domain/` — lógica de dominio (fusiones, cálculo, cadenas)
+- `src/server/data/store.ts` — carga de datos JSON en memoria al arrancar
+- `src/client/` — cliente TypeScript; consume la API REST bajo `/api/`
+- `src/shared/` — tipos e i18n compartidos entre cliente y servidor
+- `.sdd/` — SPECs y PLANs del proceso de desarrollo dirigido por especificaciones
 
-A licence will be added once the rewrite reaches a stable point.
+---
 
-### Project Notes
+## Roadmap
 
-Server-rendered Express + EJS app with a TypeScript client. Domain logic
-lives under [src/server/domain/](src/server/domain/); JSON data is loaded
-into memory on boot from [src/server/data/store.ts](src/server/data/store.ts).
-The client (in [src/client/](src/client/)) consumes a REST API under `/api/`.
+- [x] Scaffolding Node + TypeScript y servidor Express mínimo
+- [x] Páginas EJS con layouts y partials
+- [x] Estilos Tailwind en todas las páginas
+- [x] i18n español (por defecto) e inglés
+- [x] Scripts de cliente en TypeScript; eliminados jQuery, Bootstrap y TaffyDB
+- [x] Capa de dominio en servidor con cobertura de tests unitarios
+- [x] API REST para cartas, fusiones, equipos, resultados y calculadora
+- [x] Número dinámico de ranuras en la calculadora
+- [x] Búsqueda de cadena de fusiones óptima
+- [x] Imágenes reales de carta
+- [x] Cuadrícula de cartas con artwork en la calculadora
+- [ ] Filtros y ordenación por tipo, ATK/DEF y estrellas
+- [ ] Constructor de mazo persistido en `localStorage`
+- [ ] Vista de detalle de carta mejorada
+- [ ] Búsqueda aproximada (fuzzy search)
+- [ ] Exportar / importar manos
+- [ ] PWA / soporte offline
 
-The Ruby scripts under [scripts/](scripts/) regenerate the derived data
-files from `data/Cards.json` and will be rewritten in TypeScript in a
-future SPEC.
+---
 
-## Special Thanks
+## Agradecimientos
 
-- Steve Kalynuik, Dylan Birtolo and Miguel Balauag, for the [Fusion FAQ](https://www.gamefaqs.com/ps/561010-yu-gi-oh-forbidden-memories/faqs/16613), an invaluable resource.
-- The Yu-Gi-Oh! Wikia, for the list of cards that became the card database.
-- [Solumin](https://github.com/Solumin) for the original project this fork is based on.
-- [CathodeRaymond](https://github.com/CathodeRaymond) for the original CSS work.
-- [duke1102](https://github.com/duke1102) for providing `Cards.json`, without which this project would be very inaccurate.
-- marcos0000 for the Forbidden Memories logo in HD ([DeviantArt](https://www.deviantart.com/marcos0000)) and Carlos123321 for the VRAINS background ([DeviantArt](https://www.deviantart.com/carlos123321)).
-- Giver336 for the .gif.
+- [Solumin](https://github.com/Solumin) y colaboradores por el proyecto original.
+- Steve Kalynuik, Dylan Birtolo y Miguel Balauag, autores del [Fusion FAQ](https://www.gamefaqs.com/ps/561010-yu-gi-oh-forbidden-memories/faqs/16613).
+- [CathodeRaymond](https://github.com/CathodeRaymond) por el trabajo original con CSS.
+- [duke1102](https://github.com/duke1102) por proporcionar `Cards.json`.
+- marcos0000 por el logo de Forbidden Memories en HD ([DeviantArt](https://www.deviantart.com/marcos0000)) y Carlos123321 por el fondo VRAINS ([DeviantArt](https://www.deviantart.com/carlos123321)).
+- Giver336 por el GIF.
