@@ -69,10 +69,8 @@
     "about.p1": "Yu-Gi-Oh! Forbidden Memories es un juego que nos encanta jugar a un amigo y a mí. Las fusiones son una mecánica central: combinar dos cartas para obtener una nueva, normalmente más poderosa. El problema es que el juego no te dice nada sobre ellas, y con más de 720 cartas, descubrir cuáles merecen la pena es tedioso.",
     "about.p2": "La aplicación original fue creada por Solumin en GitHub, y nos ayudó muchísimo a descubrir combinaciones y sacar más partido a nuestras partidas.",
     "about.p3": "Quise adaptar esa herramienta a mis gustos: modernizar la interfaz, añadir nuevas funcionalidades y hacerla más cómoda para nuestras sesiones de juego.",
-    "about.thanks.title": "Agradecimientos",
-    "about.thanks.faq": "Steve Kalynuik, Dylan Birtolo y Miguel Balauag, autores del Fusion FAQ, y la Yu-Gi-Oh! Wikia, que aportaron los datos usados para crear la primera versión de esta calculadora.",
-    "about.thanks.cathode": "CathodeRaymond por el trabajo con CSS y porque el proyecto realmente se vea bien.",
-    "about.thanks.duke": "duke1102 por proporcionar los datos completos de cartas y fusiones, sin los cuales este proyecto sería muy inexacto.",
+    "about.thanks.title": "Proyecto original",
+    "about.thanks.solumin": "Esta aplicación está basada en el proyecto original de Solumin, con contribuciones de Steve Kalynuik, Dylan Birtolo, Miguel Balauag, CathodeRaymond y duke1102. Puedes ver el proyecto original en",
     "footer.copyright": "Yu-Gi-Oh! Forbidden Memories Fusion Calculator © {{year}}",
     "footer.alt.pendant": "Pendiente del milenio",
     "footer.alt.github": "Repositorio en GitHub"
