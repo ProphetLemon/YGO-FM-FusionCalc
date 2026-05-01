@@ -1,6 +1,6 @@
 # SPEC: dynamic-slots-calculator
 
-Estado: APROBADO
+Estado: COMPLETADO
 Fecha: 2026-05-01
 Slug: `dynamic-slots-calculator`
 
