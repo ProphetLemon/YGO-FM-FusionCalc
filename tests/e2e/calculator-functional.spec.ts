@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-test("calculator loads with two empty slots", async ({ page }) => {
+test("calculator loads with five empty slots", async ({ page }) => {
     await page.goto("/calculator");
-    await expect(page.locator(".hand-slot")).toHaveCount(2);
+    await expect(page.locator(".hand-slot")).toHaveCount(5);
 });
 
 test("add slot button increases slot count", async ({ page }) => {

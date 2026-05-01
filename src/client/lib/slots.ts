@@ -1,4 +1,4 @@
-export const MIN_HAND_SIZE = 2;
+export const MIN_HAND_SIZE = 5;
 
 export function canRemoveSlot(count: number): boolean {
     return count > MIN_HAND_SIZE;
