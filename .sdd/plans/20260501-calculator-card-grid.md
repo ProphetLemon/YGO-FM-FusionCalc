@@ -1,6 +1,6 @@
 # PLAN: calculator-card-grid
 
-Estado: APROBADO
+Estado: COMPLETADO
 Fecha: 2026-05-01
 Spec: `.sdd/specs/20260501-calculator-card-grid.md`
 

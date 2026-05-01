@@ -1,6 +1,6 @@
 # SPEC: calculator-card-grid
 
-Estado: APROBADO
+Estado: COMPLETADO
 Fecha: 2026-05-01
 Slug: `calculator-card-grid`
 
