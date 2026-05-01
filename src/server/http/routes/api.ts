@@ -1,6 +1,7 @@
 import { type Request, type Response, Router } from "express";
 import express from "express";
 import { findCombinations } from "../../domain/calculator.js";
+import { findBestChains, MAX_CHAIN_HAND } from "../../domain/chain-search.js";
 import { getEquipsFor } from "../../domain/equips.js";
 import { getFusionsFor } from "../../domain/fusions.js";
 import { getResultsFor } from "../../domain/results.js";
@@ -115,6 +116,27 @@ export function apiRouter(): Router {
         }
         const out = findCombinations({ handIds: handIds as number[] });
         res.json(out);
+    });
+
+    router.post("/chain-search", (req: Request, res: Response): void => {
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const handIds = body.handIds;
+        if (!Array.isArray(handIds) || handIds.some((id) => typeof id !== "number")) {
+            sendError(res, 400, {
+                code: "invalid-hand",
+                message: "Body must include handIds as a number array",
+            });
+            return;
+        }
+        if (handIds.length > MAX_CHAIN_HAND) {
+            sendError(res, 400, {
+                code: "hand-too-large",
+                message: `handIds must not exceed ${MAX_CHAIN_HAND} cards`,
+            });
+            return;
+        }
+        const chains = findBestChains(handIds as number[]);
+        res.json({ chains });
     });
 
     return router;
