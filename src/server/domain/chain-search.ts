@@ -1,8 +1,10 @@
+import { MAX_HAND_SIZE } from "../../shared/limits.js";
 import type { CardSummary, ChainResult, ChainSearchResponse, FusionStep } from "../../shared/types.js";
 import { getCardById, getFusionResult } from "../data/store.js";
 import { isMonster, toCardSummary } from "./cards.js";
 
-export const MAX_CHAIN_HAND = 12;
+// Alias of the shared cap, kept for the callers that still import the chain-search name.
+export const MAX_CHAIN_HAND = MAX_HAND_SIZE;
 // Hand states the search may discover before it stops and reports `truncated`. Random hands need a few
 // thousand at most; 50k caps the densest 12-card hands at roughly 0.2-0.3 s (measured with the full data).
 export const MAX_CHAIN_STATES = 50_000;

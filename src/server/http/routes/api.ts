@@ -1,7 +1,8 @@
 import { type Request, type Response, Router } from "express";
 import express from "express";
+import { MAX_HAND_SIZE } from "../../../shared/limits.js";
 import { findCombinations } from "../../domain/calculator.js";
-import { findBestChains, MAX_CHAIN_HAND } from "../../domain/chain-search.js";
+import { findBestChains } from "../../domain/chain-search.js";
 import { getEquipsFor } from "../../domain/equips.js";
 import { getFusionsFor } from "../../domain/fusions.js";
 import { getResultsFor } from "../../domain/results.js";
@@ -24,6 +25,37 @@ function parseId(raw: string | string[] | undefined): number | null {
     const n = Number.parseInt(raw, 10);
     if (!Number.isInteger(n) || n <= 0) return null;
     return n;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isHand(value: unknown): value is number[] {
+    return (
+        Array.isArray(value) &&
+        value.every((id: unknown) => typeof id === "number" && Number.isInteger(id) && id > 0)
+    );
+}
+
+// Shared by both POST endpoints: sends the 400 itself and returns null when the hand cannot be used.
+function readHandIds(req: Request, res: Response): number[] | null {
+    const handIds: unknown = isRecord(req.body) ? req.body.handIds : undefined;
+    if (!isHand(handIds)) {
+        sendError(res, 400, {
+            code: "invalid-hand",
+            message: "Body must include handIds as an array of positive integers",
+        });
+        return null;
+    }
+    if (handIds.length > MAX_HAND_SIZE) {
+        sendError(res, 400, {
+            code: "hand-too-large",
+            message: `handIds must not exceed ${MAX_HAND_SIZE} cards`,
+        });
+        return null;
+    }
+    return handIds;
 }
 
 export function apiRouter(): Router {
@@ -105,37 +137,16 @@ export function apiRouter(): Router {
     });
 
     router.post("/calculator", (req: Request, res: Response): void => {
-        const body = (req.body ?? {}) as Record<string, unknown>;
-        const handIds = body.handIds;
-        if (!Array.isArray(handIds) || handIds.some((id) => typeof id !== "number")) {
-            sendError(res, 400, {
-                code: "invalid-hand",
-                message: "Body must include handIds as a number array",
-            });
-            return;
-        }
-        const out = findCombinations({ handIds: handIds as number[] });
+        const handIds = readHandIds(req, res);
+        if (handIds === null) return;
+        const out = findCombinations({ handIds });
         res.json(out);
     });
 
     router.post("/chain-search", (req: Request, res: Response): void => {
-        const body = (req.body ?? {}) as Record<string, unknown>;
-        const handIds = body.handIds;
-        if (!Array.isArray(handIds) || handIds.some((id) => typeof id !== "number")) {
-            sendError(res, 400, {
-                code: "invalid-hand",
-                message: "Body must include handIds as a number array",
-            });
-            return;
-        }
-        if (handIds.length > MAX_CHAIN_HAND) {
-            sendError(res, 400, {
-                code: "hand-too-large",
-                message: `handIds must not exceed ${MAX_CHAIN_HAND} cards`,
-            });
-            return;
-        }
-        const { chains, truncated } = findBestChains(handIds as number[]);
+        const handIds = readHandIds(req, res);
+        if (handIds === null) return;
+        const { chains, truncated } = findBestChains(handIds);
         res.json({ chains, truncated });
     });
 
