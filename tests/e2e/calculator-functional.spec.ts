@@ -1,14 +1,16 @@
 import { expect, test } from "@playwright/test";
 
+const START_SLOTS = 5;
+
 test("calculator loads with five empty slots", async ({ page }) => {
     await page.goto("/calculator");
-    await expect(page.locator(".hand-slot")).toHaveCount(5);
+    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS);
 });
 
 test("add slot button increases slot count", async ({ page }) => {
     await page.goto("/calculator");
     await page.locator("#addSlotBtn").click();
-    await expect(page.locator(".hand-slot")).toHaveCount(3);
+    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS + 1);
 });
 
 test("remove slot buttons are hidden at minimum slots", async ({ page }) => {
@@ -20,9 +22,9 @@ test("remove slot buttons are hidden at minimum slots", async ({ page }) => {
 test("remove slot button decreases slot count", async ({ page }) => {
     await page.goto("/calculator");
     await page.locator("#addSlotBtn").click();
-    await expect(page.locator(".hand-slot")).toHaveCount(3);
+    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS + 1);
     await page.locator(".remove-btn").first().click();
-    await expect(page.locator(".hand-slot")).toHaveCount(2);
+    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS);
 });
 
 test("calculator finds fusion when hand contains a known pair", async ({ page }) => {
@@ -50,9 +52,9 @@ test("reset clears all hand inputs and outputs", async ({ page }) => {
 test("reset keeps current slot count", async ({ page }) => {
     await page.goto("/calculator");
     await page.locator("#addSlotBtn").click();
-    await expect(page.locator(".hand-slot")).toHaveCount(3);
+    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS + 1);
     await page.locator("#resetBtn").click();
-    await expect(page.locator(".hand-slot")).toHaveCount(3);
+    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS + 1);
 });
 
 test("chain search finds a result for a known fusable pair", async ({ page }) => {
