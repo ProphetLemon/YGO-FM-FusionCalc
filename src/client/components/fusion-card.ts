@@ -1,4 +1,10 @@
-import type { CardSummary, EquipExpanded, FusionExpanded, ResultExpanded } from "../../shared/types.js";
+import type {
+    CardSummary,
+    EquipExpanded,
+    FusionExpanded,
+    ResultExpanded,
+    RitualExpanded,
+} from "../../shared/types.js";
 import { createCardImg } from "../lib/card-image.js";
 import { t } from "../lib/i18n.js";
 
@@ -8,21 +14,38 @@ interface PairWithOptionalResult {
     result?: CardSummary;
 }
 
+const ENTRY_CLASS =
+    "block rounded-lg border border-black bg-white text-fm-primary shadow-sm p-4 mb-3 max-w-xs";
+
 export function renderPair(entry: FusionExpanded | EquipExpanded | ResultExpanded): HTMLElement {
     const data = entry as PairWithOptionalResult;
     const div = document.createElement("div");
-    div.className =
-        "block rounded-lg border border-black bg-white text-fm-primary shadow-sm p-4 mb-3 max-w-xs";
+    div.className = ENTRY_CLASS;
 
     div.appendChild(makeCardLine(t("card.label.input"), data.card1));
     div.appendChild(makeCardLine(t("card.label.input"), data.card2));
     if (data.result) {
-        const detail = data.result.isMonster
-            ? `${data.result.name} (${data.result.attack}/${data.result.defense})`
-            : `${data.result.name} [${data.result.typeName}]`;
-        div.appendChild(makeCardLine(t("card.label.result"), data.result, detail));
+        div.appendChild(makeCardLine(t("card.label.result"), data.result, describeResult(data.result)));
     }
     return div;
+}
+
+export function renderRitual(entry: RitualExpanded): HTMLElement {
+    const div = document.createElement("div");
+    div.className = `ritual-entry ${ENTRY_CLASS}`;
+
+    div.appendChild(makeCardLine(t("card.label.ritual"), entry.ritualCard));
+    for (const material of entry.materials) {
+        div.appendChild(makeCardLine(t("card.label.material"), material));
+    }
+    div.appendChild(makeCardLine(t("card.label.result"), entry.result, describeResult(entry.result)));
+    return div;
+}
+
+function describeResult(card: CardSummary): string {
+    return card.isMonster
+        ? `${card.name} (${card.attack}/${card.defense})`
+        : `${card.name} [${card.typeName}]`;
 }
 
 function makeCardLine(label: string, card: CardSummary, overrideText?: string): HTMLElement {

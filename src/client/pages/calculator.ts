@@ -1,8 +1,8 @@
 import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
-import { renderPair } from "../components/fusion-card.js";
+import { renderPair, renderRitual } from "../components/fusion-card.js";
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
-import type { CardSummary, ChainResult } from "../../shared/types.js";
+import type { CardSummary, ChainResult, RitualExpanded } from "../../shared/types.js";
 import { MIN_HAND_SIZE, canRemoveSlot, getValidIds } from "../lib/slots.js";
 import { createCardImg } from "../lib/card-image.js";
 import { clear, qs } from "../lib/dom.js";
@@ -30,7 +30,8 @@ async function mountCalculatorPage(): Promise<void> {
     const resetBtn = qs<HTMLButtonElement>("#resetBtn");
     const outputLeft = qs<HTMLElement>("#outputarealeft");
     const outputRight = qs<HTMLElement>("#outputarearight");
-    if (!slotsContainer || !addBtn || !outputLeft || !outputRight) return;
+    const outputRituals = qs<HTMLElement>("#rituals-output");
+    if (!slotsContainer || !addBtn || !outputLeft || !outputRight || !outputRituals) return;
 
     const cardsIndex = await getCardsIndex();
     const namesById = new Map(cardsIndex.map((c) => [c.id, c.name]));
@@ -41,6 +42,7 @@ async function mountCalculatorPage(): Promise<void> {
     const refresh = async (): Promise<void> => {
         clear(outputLeft);
         clear(outputRight);
+        hideRituals(outputRituals);
         const handIds = getValidIds(
             slots.map((s) => s.input.value),
             idsByNameLower
@@ -51,6 +53,7 @@ async function mountCalculatorPage(): Promise<void> {
         for (const fusion of result.fusions) outputLeft.appendChild(renderPair(fusion));
         appendHeader(outputRight, t("search.results.equips"));
         for (const equip of result.equips) outputRight.appendChild(renderPair(equip));
+        showRituals(outputRituals, result.rituals);
     };
 
     const updateRemoveBtns = (): void => {
@@ -244,6 +247,7 @@ async function mountCalculatorPage(): Promise<void> {
         for (const slot of slots) setSlotCard(slot, null);
         clear(outputLeft);
         clear(outputRight);
+        hideRituals(outputRituals);
     });
 
     for (let i = 0; i < MIN_HAND_SIZE; i++) addSlot();
@@ -254,6 +258,22 @@ function appendHeader(where: HTMLElement, label: string): void {
     h2.className = "text-center my-4 font-display text-2xl";
     h2.textContent = label;
     where.appendChild(h2);
+}
+
+// Hidden with the class, not just emptied: the block has a top margin that would leave a gap.
+function hideRituals(where: HTMLElement): void {
+    clear(where);
+    where.classList.add("hidden");
+}
+
+function showRituals(where: HTMLElement, rituals: readonly RitualExpanded[]): void {
+    if (rituals.length === 0) return;
+    appendHeader(where, t("search.results.rituals"));
+    const list = document.createElement("div");
+    list.className = "flex flex-wrap justify-center gap-x-3";
+    for (const ritual of rituals) list.appendChild(renderRitual(ritual));
+    where.appendChild(list);
+    where.classList.remove("hidden");
 }
 
 function renderChain(chain: ChainResult): HTMLElement {
