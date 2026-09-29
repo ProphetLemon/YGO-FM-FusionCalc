@@ -87,4 +87,5 @@ export interface ChainResult {
 
 export interface ChainSearchResponse {
     chains: ChainResult[];
+    truncated: boolean;
 }

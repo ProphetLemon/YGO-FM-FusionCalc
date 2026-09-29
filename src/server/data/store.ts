@@ -20,6 +20,7 @@ interface StoreInternals {
     allCards: readonly Card[];
     cardIndex: ReadonlyArray<{ id: number; name: string; type: number }>;
     fusionsByCard: Map<number, readonly FusionIndexEntry[]>;
+    fusionResults: Map<number, Map<number, number>>;
     equipsByCard: Map<number, readonly number[]>;
     resultsByCard: Map<number, readonly ResultEntry[]>;
 }
@@ -60,6 +61,15 @@ export function loadStore(): void {
         if (entry !== null) fusionsByCard.set(idx, entry);
     });
 
+    const fusionResults = new Map<number, Map<number, number>>();
+    for (const [id, entries] of fusionsByCard) {
+        const resultByPartner = new Map<number, number>();
+        for (const { card, result } of entries) {
+            if (!resultByPartner.has(card)) resultByPartner.set(card, result);
+        }
+        fusionResults.set(id, resultByPartner);
+    }
+
     const equipsByCard = new Map<number, readonly number[]>();
     equipsRaw.forEach((entry, idx) => {
         if (entry !== null) equipsByCard.set(idx, entry);
@@ -76,6 +86,7 @@ export function loadStore(): void {
         allCards: cards,
         cardIndex,
         fusionsByCard,
+        fusionResults,
         equipsByCard,
         resultsByCard,
     };
@@ -106,6 +117,10 @@ export function getCardIndex(): ReadonlyArray<{ id: number; name: string; type: 
 
 export function getFusionsForCard(id: number): readonly FusionIndexEntry[] {
     return getState().fusionsByCard.get(id) ?? [];
+}
+
+export function getFusionResult(card1: number, card2: number): number | undefined {
+    return getState().fusionResults.get(card1)?.get(card2);
 }
 
 export function getEquipsForCard(id: number): readonly number[] {

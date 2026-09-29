@@ -6,6 +6,7 @@ import {
     getCardIndex,
     getCardTypeName,
     getEquipsForCard,
+    getFusionResult,
     getFusionsForCard,
     getResultsForCard,
     loadStore,
@@ -45,6 +46,38 @@ describe("store", () => {
     it("returns empty fusions for unknown card id", () => {
         expect(getFusionsForCard(0)).toEqual([]);
         expect(getFusionsForCard(999_999)).toEqual([]);
+    });
+
+    it("returns the fusion result of a pair regardless of the argument order", () => {
+        expect(getFusionResult(13, 15)).toBe(467);
+        expect(getFusionResult(15, 13)).toBe(467);
+    });
+
+    it("returns the fusion result of a card fused with itself", () => {
+        expect(getFusionResult(15, 15)).toBe(473);
+    });
+
+    it("returns undefined for a pair that does not fuse", () => {
+        expect(getFusionResult(1, 1)).toBeUndefined();
+        expect(getFusionResult(8, 1)).toBeUndefined();
+    });
+
+    it("returns undefined when a card is unknown", () => {
+        expect(getFusionResult(0, 1)).toBeUndefined();
+        expect(getFusionResult(1, 999_999)).toBeUndefined();
+        expect(getFusionResult(999_999, 999_999)).toBeUndefined();
+    });
+
+    it("matches the first entry the per-card fusion index lists for every partner", () => {
+        const mismatches: number[][] = [];
+        for (const card of getAllCards()) {
+            const entries = getFusionsForCard(card.Id);
+            for (const { card: partner } of entries) {
+                const expected = entries.find((entry) => entry.card === partner)?.result;
+                if (getFusionResult(card.Id, partner) !== expected) mismatches.push([card.Id, partner]);
+            }
+        }
+        expect(mismatches).toEqual([]);
     });
 
     it("returns equips lists", () => {

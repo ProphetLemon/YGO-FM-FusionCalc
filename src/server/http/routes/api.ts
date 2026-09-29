@@ -135,8 +135,8 @@ export function apiRouter(): Router {
             });
             return;
         }
-        const chains = findBestChains(handIds as number[]);
-        res.json({ chains });
+        const { chains, truncated } = findBestChains(handIds as number[]);
+        res.json({ chains, truncated });
     });
 
     return router;
