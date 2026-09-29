@@ -12,10 +12,19 @@ export interface Card {
     GuardianStarA?: number;
     GuardianStarB?: number;
     Level?: number;
-    Ritual?: unknown;
+    Ritual?: RitualData | null;
     Attribute?: number;
     NameColor?: number;
     DescColor?: number;
+}
+
+// Recipe kept in Cards.json on its Ritual card: that card plus three materials make the result.
+export interface RitualData {
+    RitualCard: number;
+    Card1: number;
+    Card2: number;
+    Card3: number;
+    Result: number;
 }
 
 export interface FusionEntry {
@@ -69,9 +78,16 @@ export interface EquipExpanded {
     card2: CardSummary;
 }
 
+export interface RitualExpanded {
+    ritualCard: CardSummary;
+    materials: CardSummary[];
+    result: CardSummary;
+}
+
 export interface CalculatorResponse {
     fusions: FusionExpanded[];
     equips: EquipExpanded[];
+    rituals: RitualExpanded[];
 }
 
 export interface FusionStep {

@@ -1,5 +1,18 @@
 import type { Card, FusionIndexEntry, ResultEntry } from "../../shared/types.js";
 
+const RITUAL_FIELDS = ["RitualCard", "Card1", "Card2", "Card3", "Result"] as const;
+
+function isPositiveInteger(value: unknown): boolean {
+    return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+// Cards without a recipe carry `null` (or no field at all); a recipe needs its five card ids.
+function isValidRitual(value: unknown): boolean {
+    if (value === undefined || value === null) return true;
+    if (typeof value !== "object") return false;
+    return RITUAL_FIELDS.every((field) => isPositiveInteger((value as Record<string, unknown>)[field]));
+}
+
 export function validateCardsJson(value: unknown): asserts value is Card[] {
     if (!Array.isArray(value) || value.length === 0) {
         throw new Error("Cards.json: expected non-empty array");
@@ -13,6 +26,9 @@ export function validateCardsJson(value: unknown): asserts value is Card[] {
             typeof (card as Card).Type !== "number"
         ) {
             throw new Error(`Cards.json: invalid card at index ${index}`);
+        }
+        if (!isValidRitual((card as Card).Ritual)) {
+            throw new Error(`Cards.json: invalid ritual at index ${index}`);
         }
     }
 }

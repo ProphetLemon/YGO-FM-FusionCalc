@@ -1,6 +1,7 @@
 import type { CalculatorResponse, EquipExpanded, FusionExpanded } from "../../shared/types.js";
 import { getCardById, getEquipsForCard, getFusionsForCard } from "../data/store.js";
 import { toCardSummary } from "./cards.js";
+import { findRituals } from "./rituals.js";
 
 export interface CalculatorInput {
     handIds: readonly number[];
@@ -40,5 +41,5 @@ export function findCombinations(input: CalculatorInput): CalculatorResponse {
     }
 
     fusions.sort((a, b) => b.result.attack - a.result.attack);
-    return { fusions, equips };
+    return { fusions, equips, rituals: findRituals(input.handIds) };
 }

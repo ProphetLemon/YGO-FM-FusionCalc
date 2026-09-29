@@ -9,7 +9,9 @@ import {
     getFusionResult,
     getFusionsForCard,
     getResultsForCard,
+    getRitualRecipes,
     loadStore,
+    resetStore,
 } from "../../../../src/server/data/store.js";
 
 describe("store", () => {
@@ -92,5 +94,47 @@ describe("store", () => {
         expect(getCardTypeName(0)).toBe("Dragon");
         expect(getCardTypeName(20)).toBe("Magic");
         expect(getCardTypeName(999)).toBe("Unknown");
+    });
+
+    it("lists the 24 ritual recipes of the data", () => {
+        expect(getRitualRecipes()).toHaveLength(24);
+    });
+
+    it("returns the complete recipe of a ritual card", () => {
+        expect(getRitualRecipes()).toContainEqual({
+            RitualCard: 666,
+            Card1: 29,
+            Card2: 31,
+            Card3: 101,
+            Result: 357,
+        });
+    });
+
+    it("lists exactly the recipes carried by the ritual cards, in card order", () => {
+        const carried = getAllCards().flatMap((card) => (card.Ritual ? [card.Ritual] : []));
+        expect(getRitualRecipes()).toEqual(carried);
+    });
+
+    it("only lists recipes whose five cards exist in the store", () => {
+        const withMissingCards = getRitualRecipes().filter((recipe) =>
+            [recipe.RitualCard, recipe.Card1, recipe.Card2, recipe.Card3, recipe.Result].some(
+                (id) => getCardById(id) === undefined
+            )
+        );
+        expect(withMissingCards).toEqual([]);
+    });
+
+    it("builds the recipe list once per load", () => {
+        expect(getRitualRecipes()).toBe(getRitualRecipes());
+    });
+
+    it("drops the recipes, like the rest of the state, when the store is reset", () => {
+        resetStore();
+        try {
+            expect(() => getRitualRecipes()).toThrow("Store not loaded");
+        } finally {
+            loadStore();
+        }
+        expect(getRitualRecipes()).toHaveLength(24);
     });
 });

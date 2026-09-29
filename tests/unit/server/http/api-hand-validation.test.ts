@@ -9,7 +9,7 @@ const app = createApp();
 const ENDPOINTS = ["/api/calculator", "/api/chain-search"] as const;
 
 const EMPTY_RESULTS = {
-    "/api/calculator": { fusions: [], equips: [] },
+    "/api/calculator": { fusions: [], equips: [], rituals: [] },
     "/api/chain-search": { chains: [], truncated: false },
 } as const;
 

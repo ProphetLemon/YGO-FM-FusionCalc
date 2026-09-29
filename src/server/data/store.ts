@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Card, FusionIndexEntry, ResultEntry } from "../../shared/types.js";
+import type { Card, FusionIndexEntry, ResultEntry, RitualData } from "../../shared/types.js";
 import typesAndStars from "../../shared/types-and-stars.json" with { type: "json" };
 import {
     validateCardsJson,
@@ -23,6 +23,7 @@ interface StoreInternals {
     fusionResults: Map<number, Map<number, number>>;
     equipsByCard: Map<number, readonly number[]>;
     resultsByCard: Map<number, readonly ResultEntry[]>;
+    ritualRecipes: readonly RitualData[];
 }
 
 let state: StoreInternals | null = null;
@@ -49,10 +50,12 @@ export function loadStore(): void {
     const cardsById = new Map<number, Card>();
     const cardsByNameLower = new Map<string, Card>();
     const cardIndex: Array<{ id: number; name: string; type: number }> = [];
+    const ritualRecipes: RitualData[] = [];
     for (const card of cards) {
         cardsById.set(card.Id, card);
         cardsByNameLower.set(card.Name.toLowerCase(), card);
         cardIndex.push({ id: card.Id, name: card.Name, type: card.Type });
+        if (card.Ritual) ritualRecipes.push(card.Ritual);
     }
     cardIndex.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -89,6 +92,7 @@ export function loadStore(): void {
         fusionResults,
         equipsByCard,
         resultsByCard,
+        ritualRecipes,
     };
 }
 
@@ -129,6 +133,10 @@ export function getEquipsForCard(id: number): readonly number[] {
 
 export function getResultsForCard(id: number): readonly ResultEntry[] {
     return getState().resultsByCard.get(id) ?? [];
+}
+
+export function getRitualRecipes(): readonly RitualData[] {
+    return getState().ritualRecipes;
 }
 
 export function getCardTypeName(typeIndex: number): string {
