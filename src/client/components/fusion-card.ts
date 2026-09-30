@@ -107,7 +107,7 @@ function makeCardLine(label: string, card: CardSummary, overrideText?: string): 
     const row = document.createElement("div");
     row.className = "flex items-center gap-2 mb-2";
 
-    row.appendChild(createCardImg(card.name, card.password, "w-10 h-14 flex-shrink-0"));
+    row.appendChild(createCardImg(card.name, card.imageCode, "w-10 h-14 flex-shrink-0", { compact: true }));
 
     const p = document.createElement("p");
     p.className = "text-sm min-w-0";

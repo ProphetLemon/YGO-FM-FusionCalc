@@ -170,6 +170,7 @@ function summary(id: number, name: string, typeName: string): CardSummary {
         defense: 1000,
         stars: 1,
         password: "00000000",
+        imageCode: null,
         isMonster: typeName !== "Equip",
     };
 }

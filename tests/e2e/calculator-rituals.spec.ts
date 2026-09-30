@@ -7,8 +7,9 @@ const INCOMPLETE_HANDS: ReadonlyArray<readonly [string, readonly string[]]> = [
     ["a material", ["Yamadron Ritual", "Mountain Warrior", "Koumori Dragon"]],
 ];
 
-// Passwords of the five cards of the entry, in display order: ritual card, materials, result.
-const YAMADRON_PASSWORDS = ["29089635", "04931562", "67724379", "92944626", "70345785"];
+// Artwork file names of the five cards of the entry, in display order: ritual card, materials, result. The CDN
+// names a file after the password without its padding: Mountain Warrior's password is "04931562".
+const YAMADRON_ARTWORK = ["29089635", "4931562", "67724379", "92944626", "70345785"];
 
 test.beforeEach(async ({ page }) => {
     // The specs check the artwork markup, so they do not need the third-party CDN to answer.
@@ -64,9 +65,9 @@ test.describe("rituals block", () => {
         await page.goto("/calculator");
         await fillHand(page, YAMADRON_HAND);
         const images = page.locator("#rituals-output .ritual-entry").first().locator("img");
-        await expect(images).toHaveCount(YAMADRON_PASSWORDS.length);
-        for (const [index, password] of YAMADRON_PASSWORDS.entries()) {
-            await expect(images.nth(index)).toHaveAttribute("src", new RegExp(`/${password}\\.jpg$`));
+        await expect(images).toHaveCount(YAMADRON_ARTWORK.length);
+        for (const [index, file] of YAMADRON_ARTWORK.entries()) {
+            await expect(images.nth(index)).toHaveAttribute("src", new RegExp(`/${file}\\.jpg$`));
         }
     });
 

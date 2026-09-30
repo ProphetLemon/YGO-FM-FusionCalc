@@ -206,7 +206,7 @@ function mountCalculatorPage(): void {
         if (card) {
             slot.imgWrapper.innerHTML = "";
             slot.imgWrapper.appendChild(
-                createCardImg(card.name, card.password, "w-full h-full object-contain")
+                createCardImg(card.name, card.imageCode, "w-full h-full object-contain")
             );
             slot.nameLabel.textContent = card.name;
             slot.input.value = card.name;

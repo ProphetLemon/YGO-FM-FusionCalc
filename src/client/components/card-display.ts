@@ -15,7 +15,7 @@ export function renderCardSummary(card: CardSummary): HTMLElement {
     const body = document.createElement("div");
     body.className = "flex gap-4";
 
-    body.appendChild(createCardImg(card.name, card.password, "w-40 h-56 flex-shrink-0"));
+    body.appendChild(createCardImg(card.name, card.imageCode, "w-40 h-56 flex-shrink-0"));
 
     const stats = document.createElement("div");
     stats.className = "flex-1 min-w-0";

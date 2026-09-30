@@ -39,3 +39,20 @@ describe("GET /api/cards?name=", () => {
         expect(res.status).toBe(404);
     });
 });
+
+describe("the artwork code of a card summary", () => {
+    it("names the file the CDN has and leaves the password as the game spells it", async () => {
+        const res = await request(app).get("/api/cards").query({ name: "Mountain Warrior" });
+        expect(res.body.card).toMatchObject({ password: "04931562", imageCode: "4931562" });
+    });
+
+    it("names the file of a card with no password through the override list", async () => {
+        const res = await request(app).get("/api/cards/374");
+        expect(res.body.card).toMatchObject({ password: "00000000", imageCode: "25833572" });
+    });
+
+    it("is null for a card with no artwork at all", async () => {
+        const res = await request(app).get("/api/cards/715");
+        expect(res.body.card).toMatchObject({ password: "00000000", imageCode: null });
+    });
+});

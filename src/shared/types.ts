@@ -53,6 +53,8 @@ export interface CardSummary {
     defense: number;
     stars: number;
     password: string;
+    // File name of the artwork on the image CDN. null when the card has none, so the page asks for nothing.
+    imageCode: string | null;
     isMonster: boolean;
 }
 
