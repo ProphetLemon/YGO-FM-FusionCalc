@@ -7,7 +7,7 @@ import type {
     FusionExpanded,
     ResultExpanded,
 } from "../../shared/types.js";
-import { readJson, writeJson } from "./storage.js";
+import { browserStorage, readJson, writeJson } from "./storage.js";
 
 const CARDS_INDEX_KEY = "ygo-fm:cards-index";
 
@@ -45,11 +45,14 @@ export class ApiError extends Error {
     }
 }
 
+// The copy in sessionStorage only saves a request: storage that is blocked, or a copy that cannot be used,
+// means fetching. A failed request stores nothing, so the next call asks again.
 export async function getCardsIndex(): Promise<readonly CardIndexEntry[]> {
-    const cached = readJson<{ cards: readonly CardIndexEntry[] }>(window.sessionStorage, CARDS_INDEX_KEY);
-    if (cached !== null) return cached.cards;
+    const storage = browserStorage("sessionStorage");
+    const cards = readJson<{ cards?: unknown }>(storage, CARDS_INDEX_KEY)?.cards;
+    if (Array.isArray(cards)) return cards;
     const fresh = await fetchJson<{ cards: readonly CardIndexEntry[] }>("/api/cards-index");
-    writeJson(window.sessionStorage, CARDS_INDEX_KEY, fresh);
+    writeJson(storage, CARDS_INDEX_KEY, fresh);
     return fresh.cards;
 }
 

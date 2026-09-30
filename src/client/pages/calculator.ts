@@ -4,9 +4,10 @@ import { renderChain, renderEquip, renderPair, renderRitual } from "../component
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
 import type { CalculatorResponse, CardSummary, RitualExpanded } from "../../shared/types.js";
 import { MAX_HAND_SIZE } from "../../shared/limits.js";
-import { MIN_HAND_SIZE, canAddSlot, canRemoveSlot, getValidIds } from "../lib/slots.js";
+import { MIN_HAND_SIZE, canAddSlot, canRemoveSlot, getSlotIds, getValidIds } from "../lib/slots.js";
 import { createCardImg } from "../lib/card-image.js";
 import { clear, qs } from "../lib/dom.js";
+import { loadHand, saveHand } from "../lib/hand-storage.js";
 import { createLatest, type Latest } from "../lib/latest.js";
 import { t } from "../lib/i18n.js";
 
@@ -23,6 +24,9 @@ interface SlotState {
     // The card the slot shows, and the guard that stops a late name lookup from overwriting the slot.
     card: CardSummary | null;
     lookup: Latest;
+    // The card saved for this slot, until it is put back or the user touches the slot: whatever the user did
+    // meanwhile wins over the saved hand.
+    savedId: number | null;
 }
 
 type SlotProblem = "invalid" | "lookup-failed";
@@ -73,6 +77,7 @@ function mountCalculatorPage(): void {
 
     // The hand is read from the card index, so the results never wait for the artwork lookups.
     const idsByNameLower = new Map<string, number>();
+    const namesById = new Map<number, string>();
     let suggestions: readonly string[] = [];
     let markIndexReady = (): void => {};
     const indexReady = new Promise<void>((resolve) => {
@@ -85,6 +90,9 @@ function mountCalculatorPage(): void {
     const chainLatest = createLatest();
     // Ordered ids of the hand the results show or are being fetched for; null makes the next refresh fetch.
     let shownKey: string | null = null;
+    // Saving waits for the saved hand to be put back: before that the slots are still empty, and saving them
+    // would erase the hand this page is about to restore.
+    let persistReady = false;
 
     const currentHandIds = (): number[] =>
         getValidIds(
@@ -164,11 +172,15 @@ function mountCalculatorPage(): void {
         setBusy(indexRetryBtn, true);
         try {
             const cardsIndex = await getCardsIndex();
-            for (const c of cardsIndex) idsByNameLower.set(c.name.toLowerCase(), c.id);
-            suggestions = cardsIndex.map((c) => c.name).sort((a, b) => a.localeCompare(b));
+            for (const c of cardsIndex) {
+                idsByNameLower.set(c.name.toLowerCase(), c.id);
+                namesById.set(c.id, c.name);
+            }
+            suggestions = cardsIndex.map((c) => c.name);
             indexError.classList.add("hidden");
+            restoreHand();
             markIndexReady();
-            // Names may have been typed while the index was loading.
+            // Names may have been typed while the index was loading, and a restored hand needs its results.
             void refresh();
         } catch {
             indexError.classList.remove("hidden");
@@ -229,8 +241,30 @@ function mountCalculatorPage(): void {
         }
     };
 
+    // The hand is saved from the names in the inputs, through the index: it never waits for an artwork
+    // lookup, and a name the index does not know is left out.
+    const persist = (): void => {
+        if (!persistReady) return;
+        const names = slots.map((s) => s.input.value);
+        saveHand(getSlotIds(names, idsByNameLower));
+    };
+
+    // Puts the saved cards back once the index can name them, and only then lets the page save. A slot the
+    // user touched has forgotten its saved card, so nothing typed or cleared meanwhile is overwritten.
+    const restoreHand = (): void => {
+        for (const slot of slots) {
+            const name = slot.savedId === null ? undefined : namesById.get(slot.savedId);
+            slot.savedId = null;
+            if (name === undefined) continue;
+            slot.input.value = name;
+            void updateSlotCard(slot);
+        }
+        persistReady = true;
+        persist();
+    };
+
     // The cap is enforced here, not only by the disabled button, so no caller can grow the hand past it.
-    const addSlot = (): void => {
+    const addSlot = (savedId: number | null = null): void => {
         if (!canAddSlot(slots.length)) return;
         const n = slots.length + 1;
 
@@ -319,12 +353,14 @@ function mountCalculatorPage(): void {
             removeBtn,
             card: null,
             lookup: createLatest(),
+            savedId,
         };
         slots.push(state);
 
         const commit = (): void => {
             void updateSlotCard(state);
             void refresh();
+            persist();
         };
 
         // Suggestions wait for the card index instead of failing when it has not arrived (or failed).
@@ -336,6 +372,7 @@ function mountCalculatorPage(): void {
         input.addEventListener("input", () => {
             // A lookup in flight is for older text and must not overwrite what is being typed.
             state.lookup.cancel();
+            state.savedId = null;
             if (input.value.trim() === "") setSlotProblem(state, null);
         });
         input.addEventListener("change", commit);
@@ -344,6 +381,7 @@ function mountCalculatorPage(): void {
             state.lookup.cancel();
             setSlotCard(state, null);
             void refresh();
+            persist();
         });
 
         removeBtn.addEventListener("click", () => {
@@ -354,6 +392,7 @@ function mountCalculatorPage(): void {
             slotsContainer.removeChild(cell);
             updateSlotControls();
             void refresh();
+            persist();
         });
 
         updateSlotControls();
@@ -385,7 +424,10 @@ function mountCalculatorPage(): void {
         setBusy(chainBtn, false);
     };
 
-    addBtn.addEventListener("click", addSlot);
+    addBtn.addEventListener("click", () => {
+        addSlot();
+        persist();
+    });
     indexRetryBtn.addEventListener("click", () => void loadIndex());
     chainBtn.addEventListener("click", () => void runChainSearch());
 
@@ -394,14 +436,18 @@ function mountCalculatorPage(): void {
         shownKey = null;
         for (const slot of slots) {
             slot.lookup.cancel();
+            slot.savedId = null;
             setSlotCard(slot, null);
         }
         clearResults();
         showHint();
         resetChain();
+        persist();
     });
 
-    for (let i = 0; i < MIN_HAND_SIZE; i++) addSlot();
+    // The slots come back as they were saved; their cards wait for the index (see restoreHand).
+    const savedHand = loadHand() ?? Array.from({ length: MIN_HAND_SIZE }, () => null);
+    for (const savedId of savedHand) addSlot(savedId);
     showHint();
     void loadIndex();
 }

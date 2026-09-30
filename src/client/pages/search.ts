@@ -27,7 +27,7 @@ async function mountSearchPage(): Promise<void> {
 
     new Autocomplete(input, {
         fetchList: async () => (await getCardsIndex()).map((c) => c.name),
-        onSelect: () => void runByName(),
+        onSelect: () => run(runByName),
     });
 
     const clearAll = (): void => {
@@ -93,11 +93,16 @@ async function mountSearchPage(): Promise<void> {
         for (const entry of results) outputLeft.appendChild(renderPair(entry));
     };
 
-    searchNameBtn?.addEventListener("click", () => void runByName());
-    searchResultsBtn?.addEventListener("click", () => void runByResult());
+    // A search whose request fails says so instead of ending as an unhandled rejection.
+    const run = (search: () => Promise<void>): void => {
+        search().catch(() => showError(t("card.label.lookup-failed")));
+    };
+
+    searchNameBtn?.addEventListener("click", () => run(runByName));
+    searchResultsBtn?.addEventListener("click", () => run(runByResult));
     resetBtn?.addEventListener("click", () => {
         input.value = "";
         clearAll();
     });
-    input.addEventListener("change", () => void runByName());
+    input.addEventListener("change", () => run(runByName));
 }

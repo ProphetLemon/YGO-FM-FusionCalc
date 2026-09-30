@@ -3,6 +3,7 @@ import {
     MIN_HAND_SIZE,
     canAddSlot,
     canRemoveSlot,
+    getSlotIds,
     getValidIds,
 } from "../../../src/client/lib/slots.js";
 import { MAX_HAND_SIZE } from "../../../src/shared/limits.js";
@@ -62,5 +63,37 @@ describe("getValidIds", () => {
 
     it("trims whitespace", () => {
         expect(getValidIds(["  Mystical Elf  "], map)).toEqual([2]);
+    });
+});
+
+describe("getSlotIds", () => {
+    const map: ReadonlyMap<string, number> = new Map([
+        ["mystical elf", 2],
+        ["mushroom man", 8],
+    ]);
+
+    it("returns the id of every slot in slot order, null where there is none", () => {
+        expect(getSlotIds(["Mystical Elf", "", "Mushroom Man", "Unknown Card"], map)).toEqual([
+            2,
+            null,
+            8,
+            null,
+        ]);
+    });
+
+    it("keeps a card that is in more than one slot in each of them", () => {
+        expect(getSlotIds(["Mushroom Man", "Mystical Elf", "Mushroom Man"], map)).toEqual([8, 2, 8]);
+    });
+
+    it("is case-insensitive and trims whitespace", () => {
+        expect(getSlotIds(["MYSTICAL ELF", "  mushroom man  "], map)).toEqual([2, 8]);
+    });
+
+    it("gives null for a slot that only holds whitespace", () => {
+        expect(getSlotIds([" ", "\t"], map)).toEqual([null, null]);
+    });
+
+    it("returns an empty array for no slots", () => {
+        expect(getSlotIds([], map)).toEqual([]);
     });
 });

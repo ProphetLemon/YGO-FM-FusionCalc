@@ -49,17 +49,27 @@ export class Autocomplete {
         document.addEventListener("click", (e) => this.onDocumentClick(e));
     }
 
-    private async ensureLoaded(): Promise<void> {
+    private ensureLoaded(): Promise<void> {
         if (this.listLoaded === null) {
-            this.listLoaded = (async () => {
+            const loading = (async () => {
                 this.items = [...(await this.options.fetchList())];
             })();
+            this.listLoaded = loading;
+            // A failed load is forgotten, so the next input event asks for the list again.
+            loading.catch(() => {
+                if (this.listLoaded === loading) this.listLoaded = null;
+            });
         }
         return this.listLoaded;
     }
 
     private async onInput(): Promise<void> {
-        await this.ensureLoaded();
+        try {
+            await this.ensureLoaded();
+        } catch {
+            // Without the list there is nothing to suggest; the input keeps working as a plain field.
+            return;
+        }
         // A slow or retried list can arrive after the user moved on: it must not open under another field.
         if (document.activeElement !== this.input) return;
         this.filtered = rankNameMatches(this.items, this.input.value, this.options.limit ?? DEFAULT_LIMIT);
