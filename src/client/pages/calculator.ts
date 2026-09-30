@@ -2,10 +2,12 @@ import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
 import { renderPair, renderRitual } from "../components/fusion-card.js";
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
-import type { CardSummary, ChainResult, RitualExpanded } from "../../shared/types.js";
+import type { CalculatorResponse, CardSummary, ChainResult, RitualExpanded } from "../../shared/types.js";
+import { MAX_HAND_SIZE } from "../../shared/limits.js";
 import { MIN_HAND_SIZE, canRemoveSlot, getValidIds } from "../lib/slots.js";
 import { createCardImg } from "../lib/card-image.js";
 import { clear, qs } from "../lib/dom.js";
+import { createLatest, type Latest } from "../lib/latest.js";
 import { t } from "../lib/i18n.js";
 
 interface SlotState {
@@ -15,45 +17,135 @@ interface SlotState {
     filledState: HTMLElement;
     imgWrapper: HTMLElement;
     nameLabel: HTMLElement;
+    message: HTMLElement;
     clearBtn: HTMLButtonElement;
     removeBtn: HTMLButtonElement;
+    // The card the slot shows, and the guard that stops a late name lookup from overwriting the slot.
+    card: CardSummary | null;
+    lookup: Latest;
 }
+
+type SlotProblem = "invalid" | "lookup-failed";
+
+const ALERT_CLASS = "rounded p-3 mb-4 bg-red-100 text-red-800 border border-red-300 font-body text-sm";
+const SLOT_ALERT_CLASS = "mt-1 text-xs text-rose-700 font-body text-center leading-tight";
 
 document.addEventListener("DOMContentLoaded", () => {
     mountNavbar();
-    void mountCalculatorPage();
+    mountCalculatorPage();
 });
 
-async function mountCalculatorPage(): Promise<void> {
+function mountCalculatorPage(): void {
     const slotsContainer = qs<HTMLElement>("#hand-slots");
     const addBtn = qs<HTMLButtonElement>("#addSlotBtn");
     const resetBtn = qs<HTMLButtonElement>("#resetBtn");
     const outputLeft = qs<HTMLElement>("#outputarealeft");
     const outputRight = qs<HTMLElement>("#outputarearight");
     const outputRituals = qs<HTMLElement>("#rituals-output");
-    if (!slotsContainer || !addBtn || !outputLeft || !outputRight || !outputRituals) return;
+    const resultsError = qs<HTMLElement>("#results-error");
+    const indexError = qs<HTMLElement>("#index-error");
+    const indexRetryBtn = qs<HTMLButtonElement>("#indexRetryBtn");
+    const chainBtn = qs<HTMLButtonElement>("#chainBtn");
+    const chainLoading = qs<HTMLElement>("#chain-loading");
+    const chainOutput = qs<HTMLElement>("#chain-output");
+    if (
+        !slotsContainer ||
+        !addBtn ||
+        !outputLeft ||
+        !outputRight ||
+        !outputRituals ||
+        !resultsError ||
+        !indexError ||
+        !indexRetryBtn ||
+        !chainBtn ||
+        !chainLoading ||
+        !chainOutput
+    ) {
+        return;
+    }
 
-    const cardsIndex = await getCardsIndex();
-    const namesById = new Map(cardsIndex.map((c) => [c.id, c.name]));
-    const idsByNameLower = new Map(cardsIndex.map((c) => [c.name.toLowerCase(), c.id]));
+    // The hand is read from the card index, so the results never wait for the artwork lookups.
+    const idsByNameLower = new Map<string, number>();
+    let suggestions: readonly string[] = [];
+    let markIndexReady = (): void => {};
+    const indexReady = new Promise<void>((resolve) => {
+        markIndexReady = resolve;
+    });
 
     const slots: SlotState[] = [];
+    let nextSlotId = 1;
+    const refreshLatest = createLatest();
+    const chainLatest = createLatest();
+    // Ordered ids of the hand the results show or are being fetched for; null makes the next refresh fetch.
+    let shownKey: string | null = null;
 
-    const refresh = async (): Promise<void> => {
-        clear(outputLeft);
-        clear(outputRight);
-        hideRituals(outputRituals);
-        const handIds = getValidIds(
+    const currentHandIds = (): number[] =>
+        getValidIds(
             slots.map((s) => s.input.value),
             idsByNameLower
         );
-        if (handIds.length < 2) return;
-        const result = await calculate(handIds);
+
+    const clearResults = (): void => {
+        clear(outputLeft);
+        clear(outputRight);
+        hideRituals(outputRituals);
+        clear(resultsError);
+    };
+
+    const renderResults = (result: CalculatorResponse): void => {
         appendHeader(outputLeft, t("search.results.fusions"));
         for (const fusion of result.fusions) outputLeft.appendChild(renderPair(fusion));
         appendHeader(outputRight, t("search.results.equips"));
         for (const equip of result.equips) outputRight.appendChild(renderPair(equip));
         showRituals(outputRituals, result.rituals);
+    };
+
+    // The chain belongs to the hand it was made for: drop its output and any request still in flight.
+    const resetChain = (): void => {
+        chainLatest.cancel();
+        clear(chainOutput);
+        chainLoading.classList.add("hidden");
+        setBusy(chainBtn, false);
+    };
+
+    // Only the latest call touches the page. A change event that repeats the hand shown is a no-op.
+    const refresh = async (): Promise<void> => {
+        const handIds = currentHandIds();
+        const handKey = handIds.join(",");
+        if (handKey === shownKey) return;
+        shownKey = handKey;
+        resetChain();
+        const run = refreshLatest.begin();
+        clearResults();
+        if (handIds.length < 2) return;
+        let result: CalculatorResponse;
+        try {
+            result = await calculate(handIds, run.signal);
+        } catch {
+            if (!run.isCurrent()) return;
+            shownKey = null;
+            appendAlert(resultsError, t("calculator.results.error"), ALERT_CLASS);
+            return;
+        }
+        if (!run.isCurrent()) return;
+        renderResults(result);
+    };
+
+    const loadIndex = async (): Promise<void> => {
+        setBusy(indexRetryBtn, true);
+        try {
+            const cardsIndex = await getCardsIndex();
+            for (const c of cardsIndex) idsByNameLower.set(c.name.toLowerCase(), c.id);
+            suggestions = cardsIndex.map((c) => c.name).sort((a, b) => a.localeCompare(b));
+            indexError.classList.add("hidden");
+            markIndexReady();
+            // Names may have been typed while the index was loading.
+            void refresh();
+        } catch {
+            indexError.classList.remove("hidden");
+        } finally {
+            setBusy(indexRetryBtn, false);
+        }
     };
 
     const updateRemoveBtns = (): void => {
@@ -64,6 +156,8 @@ async function mountCalculatorPage(): Promise<void> {
     };
 
     function setSlotCard(slot: SlotState, card: CardSummary | null): void {
+        slot.card = card;
+        setSlotProblem(slot, null);
         if (card) {
             slot.imgWrapper.innerHTML = "";
             slot.imgWrapper.appendChild(
@@ -82,14 +176,24 @@ async function mountCalculatorPage(): Promise<void> {
         }
     }
 
+    // An answer only applies if the slot was not cleared, edited or reset while the lookup was in flight.
     const updateSlotCard = async (slot: SlotState): Promise<void> => {
         const value = slot.input.value.trim();
+        // The change event that follows a selection finds the slot already showing that card.
+        if (value && slot.card?.name.toLowerCase() === value.toLowerCase()) return;
+        const run = slot.lookup.begin();
         if (!value) {
             setSlotCard(slot, null);
             return;
         }
-        const card = await getCardByName(value);
-        setSlotCard(slot, card ?? null);
+        try {
+            const card = await getCardByName(value, run.signal);
+            if (!run.isCurrent()) return;
+            if (card) setSlotCard(slot, card);
+            else setSlotProblem(slot, "invalid");
+        } catch {
+            if (run.isCurrent()) setSlotProblem(slot, "lookup-failed");
+        }
     };
 
     const addSlot = (): void => {
@@ -149,6 +253,11 @@ async function mountCalculatorPage(): Promise<void> {
             "slot-name text-xs text-center font-body mt-1 leading-tight line-clamp-2";
         filledState.appendChild(nameLabel);
 
+        // Alert for a name that is invalid or could not be looked up (below both states)
+        const message = document.createElement("div");
+        message.id = `slot-message-${nextSlotId++}`;
+        message.className = "slot-message w-full";
+
         // Remove slot button (below both states, only when canRemoveSlot)
         const removeBtn = document.createElement("button");
         removeBtn.type = "button";
@@ -159,6 +268,7 @@ async function mountCalculatorPage(): Promise<void> {
 
         cell.appendChild(emptyState);
         cell.appendChild(filledState);
+        cell.appendChild(message);
         cell.appendChild(removeBtn);
         slotsContainer.appendChild(cell);
 
@@ -169,20 +279,34 @@ async function mountCalculatorPage(): Promise<void> {
             filledState,
             imgWrapper,
             nameLabel,
+            message,
             clearBtn,
             removeBtn,
+            card: null,
+            lookup: createLatest(),
         };
         slots.push(state);
 
+        const commit = (): void => {
+            void updateSlotCard(state);
+            void refresh();
+        };
+
+        // Suggestions wait for the card index instead of failing when it has not arrived (or failed).
         new Autocomplete(input, {
-            fetchList: () =>
-                Promise.resolve([...namesById.values()].sort((a, b) => a.localeCompare(b))),
-            onSelect: () => void updateSlotCard(state).then(refresh),
+            fetchList: () => indexReady.then(() => suggestions),
+            onSelect: commit,
         });
 
-        input.addEventListener("change", () => void updateSlotCard(state).then(refresh));
+        input.addEventListener("input", () => {
+            // A lookup in flight is for older text and must not overwrite what is being typed.
+            state.lookup.cancel();
+            if (input.value.trim() === "") setSlotProblem(state, null);
+        });
+        input.addEventListener("change", commit);
 
         clearBtn.addEventListener("click", () => {
+            state.lookup.cancel();
             setSlotCard(state, null);
             void refresh();
         });
@@ -190,6 +314,7 @@ async function mountCalculatorPage(): Promise<void> {
         removeBtn.addEventListener("click", () => {
             const idx = slots.indexOf(state);
             if (idx === -1) return;
+            state.lookup.cancel();
             slots.splice(idx, 1);
             slotsContainer.removeChild(cell);
             updateRemoveBtns();
@@ -199,58 +324,84 @@ async function mountCalculatorPage(): Promise<void> {
         updateRemoveBtns();
     };
 
-    const chainBtn = qs<HTMLButtonElement>("#chainBtn");
-    const chainLoading = qs<HTMLElement>("#chain-loading");
-    const chainOutput = qs<HTMLElement>("#chain-output");
-
-    if (chainBtn && chainLoading && chainOutput) {
-        chainBtn.addEventListener("click", () => {
-            void runChainSearch(chainOutput, chainLoading);
-        });
-    }
-
-    async function runChainSearch(output: HTMLElement, loading: HTMLElement): Promise<void> {
-        clear(output);
-        const handIds = getValidIds(
-            slots.map((s) => s.input.value),
-            idsByNameLower
-        );
+    // One request at a time: the button is disabled while it is in flight.
+    const runChainSearch = async (): Promise<void> => {
+        resetChain();
+        const handIds = currentHandIds();
         if (handIds.length < 2) {
-            output.textContent = t("calculator.chain.no-result");
+            chainOutput.textContent = t("calculator.chain.no-result");
             return;
         }
-        loading.textContent = t("calculator.chain.loading");
-        loading.classList.remove("hidden");
+        const run = chainLatest.begin();
+        chainLoading.textContent = t("calculator.chain.loading");
+        chainLoading.classList.remove("hidden");
+        setBusy(chainBtn, true);
         try {
-            const res = await chainSearch(handIds);
-            loading.classList.add("hidden");
+            const res = await chainSearch(handIds, run.signal);
+            if (!run.isCurrent()) return;
             if (res.chains.length === 0) {
-                output.textContent = t("calculator.chain.no-result");
-                return;
-            }
-            for (const chain of res.chains) {
-                output.appendChild(renderChain(chain));
+                chainOutput.textContent = t("calculator.chain.no-result");
+            } else {
+                for (const chain of res.chains) chainOutput.appendChild(renderChain(chain));
             }
         } catch (err) {
-            loading.classList.add("hidden");
-            if (err instanceof ApiError && err.status === 400) {
-                output.textContent = t("calculator.chain.hand-too-large", { max: "12" });
-            } else {
-                output.textContent = t("calculator.chain.no-result");
-            }
+            if (!run.isCurrent()) return;
+            appendAlert(chainOutput, describeChainError(err), ALERT_CLASS);
         }
-    }
+        chainLoading.classList.add("hidden");
+        setBusy(chainBtn, false);
+    };
 
     addBtn.addEventListener("click", addSlot);
+    indexRetryBtn.addEventListener("click", () => void loadIndex());
+    chainBtn.addEventListener("click", () => void runChainSearch());
 
     resetBtn?.addEventListener("click", () => {
-        for (const slot of slots) setSlotCard(slot, null);
-        clear(outputLeft);
-        clear(outputRight);
-        hideRituals(outputRituals);
+        refreshLatest.cancel();
+        shownKey = null;
+        for (const slot of slots) {
+            slot.lookup.cancel();
+            setSlotCard(slot, null);
+        }
+        clearResults();
+        resetChain();
     });
 
     for (let i = 0; i < MIN_HAND_SIZE; i++) addSlot();
+    void loadIndex();
+}
+
+// Marks the input invalid only for an unknown name; a failed lookup says nothing about the name.
+function setSlotProblem(slot: SlotState, problem: SlotProblem | null): void {
+    clear(slot.message);
+    slot.input.removeAttribute("aria-describedby");
+    if (problem === "invalid") slot.input.setAttribute("aria-invalid", "true");
+    else slot.input.removeAttribute("aria-invalid");
+    if (problem === null) return;
+    const key = problem === "invalid" ? "card.label.invalid" : "card.label.lookup-failed";
+    appendAlert(slot.message, t(key), SLOT_ALERT_CLASS);
+    slot.input.setAttribute("aria-describedby", slot.message.id);
+}
+
+function appendAlert(where: HTMLElement, message: string, className: string): void {
+    const alert = document.createElement("p");
+    alert.setAttribute("role", "alert");
+    alert.className = className;
+    alert.textContent = message;
+    where.appendChild(alert);
+}
+
+function setBusy(button: HTMLButtonElement, busy: boolean): void {
+    button.disabled = busy;
+    if (busy) button.setAttribute("aria-busy", "true");
+    else button.removeAttribute("aria-busy");
+}
+
+function describeChainError(err: unknown): string {
+    if (err instanceof ApiError && err.status === 400 && err.code === "hand-too-large") {
+        return t("calculator.chain.hand-too-large", { max: MAX_HAND_SIZE });
+    }
+    return t("calculator.chain.error");
 }
 
 function appendHeader(where: HTMLElement, label: string): void {

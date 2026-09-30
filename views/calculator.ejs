@@ -1,6 +1,20 @@
 <div class="container mx-auto px-4 py-6">
     <section class="bg-white/95 text-fm-primary rounded-lg p-6 mb-6 shadow-lg">
         <h3 class="font-display text-2xl md:text-3xl my-4"><%= t('calculator.hand.title') %></h3>
+        <div
+            id="index-error"
+            role="alert"
+            class="hidden mb-4 rounded p-3 bg-red-100 text-red-800 border border-red-300 font-body text-sm"
+        >
+            <span><%= t('calculator.index.error') %></span>
+            <button
+                type="button"
+                id="indexRetryBtn"
+                class="ml-3 px-3 py-1 bg-fm-primary text-white rounded hover:bg-fm-primary/80 font-display text-sm disabled:opacity-50"
+            >
+                <%= t('calculator.btn.retry') %>
+            </button>
+        </div>
         <div id="hand-slots" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3"></div>
         <div class="flex flex-wrap gap-3 mt-6">
             <button
@@ -24,6 +38,7 @@
         <h4 class="font-display text-2xl md:text-3xl text-center my-4">
             <%= t('calculator.results.title') %>
         </h4>
+        <div id="results-error"></div>
         <div class="grid md:grid-cols-2 gap-4">
             <div id="outputarealeft"></div>
             <div id="outputarearight"></div>
@@ -39,7 +54,7 @@
             <button
                 type="button"
                 id="chainBtn"
-                class="px-4 py-2 bg-fm-primary text-white rounded hover:bg-fm-primary/80 font-display text-sm"
+                class="px-4 py-2 bg-fm-primary text-white rounded hover:bg-fm-primary/80 font-display text-sm disabled:opacity-50"
             >
                 <%= t('calculator.chain.btn') %>
             </button>

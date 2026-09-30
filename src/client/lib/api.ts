@@ -11,19 +11,34 @@ import { readJson, writeJson } from "./storage.js";
 
 const CARDS_INDEX_KEY = "ygo-fm:cards-index";
 
+interface ErrorBody {
+    error?: { code?: unknown };
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     const res = await fetch(url, init);
     if (!res.ok) {
         const text = await res.text();
-        throw new ApiError(res.status, `HTTP ${res.status} on ${url}: ${text}`);
+        throw new ApiError(res.status, `HTTP ${res.status} on ${url}: ${text}`, readErrorCode(text));
     }
     return (await res.json()) as T;
+}
+
+// The API answers errors as { error: { code, message } }; anything else has no code.
+function readErrorCode(text: string): string | undefined {
+    try {
+        const code = (JSON.parse(text) as ErrorBody | null)?.error?.code;
+        return typeof code === "string" ? code : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 export class ApiError extends Error {
     constructor(
         public status: number,
-        message: string
+        message: string,
+        public code?: string
     ) {
         super(message);
         this.name = "ApiError";
@@ -38,12 +53,14 @@ export async function getCardsIndex(): Promise<readonly CardIndexEntry[]> {
     return fresh.cards;
 }
 
-export async function getCardByName(name: string): Promise<CardSummary | null> {
+// Null only when the API says the card does not exist; any other failure is thrown.
+export async function getCardByName(name: string, signal?: AbortSignal): Promise<CardSummary | null> {
+    const url = `/api/cards?name=${encodeURIComponent(name)}`;
     try {
-        const data = await fetchJson<{ card: CardSummary }>(`/api/cards?name=${encodeURIComponent(name)}`);
+        const data = await fetchJson<{ card: CardSummary }>(url, { signal });
         return data.card;
     } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return null;
+        if (err instanceof ApiError && err.status === 404 && err.code === "card-not-found") return null;
         throw err;
     }
 }
@@ -69,18 +86,20 @@ export async function getResults(id: number): Promise<ResultExpanded[] | null> {
     }
 }
 
-export async function calculate(handIds: number[]): Promise<CalculatorResponse> {
+export async function calculate(handIds: number[], signal?: AbortSignal): Promise<CalculatorResponse> {
     return fetchJson<CalculatorResponse>("/api/calculator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ handIds }),
+        signal,
     });
 }
 
-export async function chainSearch(handIds: number[]): Promise<ChainSearchResponse> {
+export async function chainSearch(handIds: number[], signal?: AbortSignal): Promise<ChainSearchResponse> {
     return fetchJson<ChainSearchResponse>("/api/chain-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ handIds }),
+        signal,
     });
 }
