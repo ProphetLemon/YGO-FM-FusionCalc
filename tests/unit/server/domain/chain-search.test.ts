@@ -98,6 +98,22 @@ describe("findBestChains", () => {
             expect(chains[0]?.finalCard.id).toBe(second?.result.id);
         });
 
+        it("can fuse two intermediate results with each other", () => {
+            // The model lets any two cards of the working hand fuse, products of earlier steps included. That is
+            // unverified against the real game (spec chained-fusion-search, "Preguntas abiertas"): if the game
+            // does not allow it, this is the test to change. Garvas (The Wicked Worm Beast + Witch's Apprentice)
+            // and Metal Dragon (Ancient Tool + Dragon Zombie) can only meet this way, and nothing else in this
+            // hand reaches Flame Cerebrus.
+            const { chains } = findBestChains([23, 124, 97, 628]);
+            expect(chains[0]?.finalCard.name).toBe("Flame Cerebrus");
+            expect(chains[0]?.steps).toHaveLength(3);
+            const [first, second, last] = chains[0]?.steps ?? [];
+            expect([first?.result.name, second?.result.name].sort()).toEqual(["Garvas", "Metal Dragon"]);
+            expect([last?.card1.id, last?.card2.id].sort()).toEqual(
+                [first?.result.id, second?.result.id].sort()
+            );
+        });
+
         it("keeps the shortest route to a card that also has longer routes", () => {
             // Flame Cerebrus can be made in one step and, spending more cards, in two.
             const { chains } = findBestChains([266, 7, 47, 409]);
