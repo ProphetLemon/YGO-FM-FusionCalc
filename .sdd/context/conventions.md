@@ -1,7 +1,7 @@
 # Conventions
 
 Estado: BORRADOR
-Última actualización: 2026-04-29
+Última actualización: 2026-09-30
 
 Reglas de estilo, nombrado, patrones y prácticas que el código del proyecto debe respetar. Las violaciones a este documento son motivo para rechazar un PLAN o un PR sin debate.
 
@@ -11,7 +11,7 @@ Reglas de estilo, nombrado, patrones y prácticas que el código del proyecto de
 - **Commits y nombres de ramas**: inglés.
 - **Código fuente** (identificadores, comentarios, logs, tests): inglés.
 - **UI visible al usuario**: depende del idioma activo (i18n). Las claves siempre están en inglés.
-- **README y docs públicos**: inglés.
+- **README y docs públicos**: español (registro neutro y profesional).
 
 ## Formato
 
@@ -94,7 +94,7 @@ Reglas de estilo, nombrado, patrones y prácticas que el código del proyecto de
 
 - Toda string visible al usuario pasa por el helper `t(key, lang)`.
 - Claves en `kebab-case` con namespace por feature: `calculator.add-slot`, `search.no-results`.
-- Las dos catálogos (`es`, `en`) deben tener exactamente el mismo conjunto de claves. Falta de paridad rompe el build (test específico).
+- Las dos catálogos (`es`, `en`) deben tener exactamente el mismo conjunto de claves. Falta de paridad hace fallar `npm test` (test específico).
 - Interpolación: `{{ variable }}`. Prohibido concatenar strings traducidas.
 
 ## Tests
@@ -105,7 +105,7 @@ Reglas de estilo, nombrado, patrones y prácticas que el código del proyecto de
 - Tests con AAA: arrange / act / assert. No tests con múltiples asserts no relacionados.
 - Mocks: solo en frontera (FS, red). Las funciones puras se prueban directamente.
 - Fixtures pequeñas, repetibles, en `tests/fixtures/`.
-- E2E corre contra el servidor real levantado por la propia suite (Playwright `webServer`).
+- E2E corre contra el servidor real levantado por la propia suite (Playwright `webServer` ejecuta `npm run start`), así que necesita la app compilada: `npm run build` antes.
 
 ## Commits
 

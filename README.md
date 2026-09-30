@@ -10,11 +10,42 @@ Basada en el proyecto original de [Solumin](https://github.com/Solumin/YGO-FM-Fu
 
 ## Funcionalidades
 
-- **Buscador de fusiones** — busca todas las fusiones y equipos posibles para una carta concreta.
-- **Calculadora de mano** — introduce tu mano completa y obtén todas las fusiones y equipos disponibles al instante.
-- **Cadena óptima de fusiones** — encuentra la secuencia de fusiones que maximiza el ATK del resultado final.
-- **Imágenes de carta** — artwork real de cada carta vía CDN de YGOProDeck.
+- **Buscador de fusiones** — busca todas las fusiones y equipos posibles para una carta concreta; los equipos indican qué carta es el Equip y cuál el monstruo.
+- **Calculadora de mano** — introduce tu mano y obtén al instante todas las fusiones, equipos y rituales disponibles. Empieza con 5 ranuras y admite hasta 12; se guarda en el navegador y sobrevive a las recargas y al cambio de idioma. Muestra una pista hasta tener 2 cartas, un indicador de carga, mensajes cuando no hay resultados y un aviso con reintento si falla la lista de cartas.
+- **Rituales** — un ritual aparece cuando la mano contiene la carta de ritual y sus tres materiales (se cuentan las copias).
+- **Cadena óptima de fusiones** — encuentra las secuencias de fusiones que maximizan el ATK del resultado final: hasta 5 cadenas, una por monstruo final y por su ruta más corta, ordenadas por ATK y, a igualdad, por menos pasos. Cada paso se muestra con artwork y el resultado final va resaltado.
+- **Autocompletado** — hasta 8 sugerencias por prefijo, inicio de palabra o subcadena, sin distinguir mayúsculas, acentos, guiones ni signos de puntuación.
+- **Imágenes de carta** — artwork real de cada carta vía CDN de YGOProDeck; si una carta no tiene, se muestra un marcador con su nombre.
 - **i18n** — interfaz disponible en español e inglés.
+
+---
+
+## Límites y limitaciones conocidas
+
+### Límites
+
+| Tema         | Comportamiento                                                                                                                                                         |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mano         | 5 ranuras al empezar, máximo 12 (`MAX_HAND_SIZE` en `src/shared/limits.ts`). «Añadir carta» se desactiva al llegar al máximo.                                          |
+| Cadenas      | Hasta 5 por búsqueda. Si se agota `MAX_CHAIN_STATES` (50 000 estados), la API responde `truncated: true` y la página avisa de que el resultado puede ser parcial.      |
+| Rituales     | Solo recetas completas (carta de ritual y sus 3 materiales en la mano). No hay avance parcial ni se integran en las cadenas.                                           |
+| Persistencia | La mano se guarda en `localStorage` (clave `ygo-fm-fusioncalc:hand:v1`). Si el navegador bloquea el almacenamiento, la página funciona igual pero no recuerda la mano. |
+
+Los dos `POST` de la API (`/api/calculator` y `/api/chain-search`) reciben `{ "handIds": [...] }` y ignoran los ids que no corresponden a ninguna carta. Errores de validación:
+
+| Respuesta | Código              | Cuándo                                        |
+| --------- | ------------------- | --------------------------------------------- |
+| `400`     | `invalid-hand`      | `handIds` no es un array de enteros positivos |
+| `400`     | `hand-too-large`    | hay más de 12 ids                             |
+| `400`     | `invalid-json`      | el cuerpo no es JSON válido                   |
+| `413`     | `payload-too-large` | el cuerpo supera 32 kB                        |
+
+### Limitaciones conocidas
+
+- **Nombres de carta solo en inglés.** La interfaz está en español e inglés, pero no hay una fuente de datos con los nombres en español.
+- **Modelo de cadenas sin verificar en el juego real.** Se puede fusionar cualquier par de cartas de la mano de trabajo, incluidos dos resultados intermedios entre sí. No está comprobado que el juego lo permita, así que alguna cadena podría no ser ejecutable. Ver «Preguntas abiertas» en [`.sdd/specs/20260501-chained-fusion-search.md`](.sdd/specs/20260501-chained-fusion-search.md). Un test fija ese comportamiento (`can fuse two intermediate results with each other` en `tests/unit/server/domain/chain-search.test.ts`): es el que hay que cambiar si el juego no lo permite.
+- **Imágenes enlazadas directamente desde YGOProDeck.** La [guía de su API](https://ygoprodeck.com/api-guide/) pide descargarlas y alojarlas uno mismo: «Do not continually hotlink images directly from this site. Please download and re-host the images yourself. Failure to do so will result in an IP blacklist.» Es una limitación anterior a los últimos cambios; alojar las imágenes en el propio proyecto queda como tarea aparte.
+- **17 de las 722 cartas no tienen artwork** (medición del 2026-09-30) y muestran un marcador con su nombre. Detalle y método en [`.sdd/specs/20260501-card-images.md`](.sdd/specs/20260501-card-images.md).
 
 ---
 
@@ -46,9 +77,15 @@ npm start
 ## Tests
 
 ```sh
-npm test          # Tests unitarios Vitest con cobertura
-npm run test:e2e  # Tests end-to-end con Playwright
+npm test          # Tests unitarios Vitest con cobertura (umbral del 80 % en servidor y `shared`)
+npm run build     # Necesario antes de los e2e
+npm run test:e2e  # Tests end-to-end con Playwright (Chromium)
 ```
+
+Los e2e usan la app **compilada**: Playwright arranca `npm run start` (`node dist/server/index.js`), así que sin un `npm run build` previo prueban una versión anterior o no arrancan. Además:
+
+- Chromium debe estar instalado para Playwright: `npx playwright install chromium`.
+- El puerto 3000 debe estar libre: fuera de CI, Playwright reutiliza el servidor que ya haya en él.
 
 ---
 
@@ -64,11 +101,12 @@ URL: https://ygo-fm-fusion-calc.onrender.com/
 
 App Express + EJS renderizada en servidor con cliente TypeScript compilado con Vite.
 
-- `src/server/domain/` — lógica de dominio (fusiones, cálculo, cadenas)
+- `src/server/domain/` — lógica de dominio (fusiones, cálculo, cadenas, rituales)
 - `src/server/data/store.ts` — carga de datos JSON en memoria al arrancar
-- `src/client/` — cliente TypeScript; consume la API REST bajo `/api/`
-- `src/shared/` — tipos e i18n compartidos entre cliente y servidor
-- `.sdd/` — SPECs y PLANs del proceso de desarrollo dirigido por especificaciones
+- `src/server/http/routes/api.ts` — endpoints de la API REST y validación de la mano
+- `src/client/` — cliente TypeScript; consume la API REST bajo `/api/`. La lógica que no toca el DOM vive en `src/client/lib/` con tests unitarios (`name-search.ts`, `hand-storage.ts`, `latest.ts`, `slots.ts`)
+- `src/shared/` — tipos, i18n y constantes compartidas entre cliente y servidor (`limits.ts` con `MAX_HAND_SIZE`, `card-image-overrides.json`)
+- `.sdd/` — SPECs y PLANs del proceso de desarrollo dirigido por especificaciones; [`.sdd/context/structure.md`](.sdd/context/structure.md) tiene el mapa completo de archivos
 
 ---
 
@@ -85,10 +123,14 @@ App Express + EJS renderizada en servidor con cliente TypeScript compilado con V
 - [x] Búsqueda de cadena de fusiones óptima
 - [x] Imágenes reales de carta
 - [x] Cuadrícula de cartas con artwork en la calculadora
+- [x] Rituales en la calculadora
+- [x] Mano de la calculadora persistida en `localStorage`
+- [x] Autocompletado por subcadena
+- [x] Estados de la calculadora: pista, carga, sin resultados y errores con reintento
 - [ ] Filtros y ordenación por tipo, ATK/DEF y estrellas
 - [ ] Constructor de mazo persistido en `localStorage`
 - [ ] Vista de detalle de carta mejorada
-- [ ] Búsqueda aproximada (fuzzy search)
+- [ ] Búsqueda aproximada (fuzzy search): la búsqueda por subcadena ya existe; falta tolerar erratas
 - [ ] Exportar / importar manos
 - [ ] PWA / soporte offline
 

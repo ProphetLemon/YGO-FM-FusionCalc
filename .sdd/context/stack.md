@@ -1,7 +1,7 @@
 # Stack
 
 Estado: BORRADOR
-Última actualización: 2026-04-29
+Última actualización: 2026-09-30
 
 ## Runtime y lenguajes
 
@@ -22,7 +22,7 @@ Estado: BORRADOR
 - **EJS** renderizado en servidor (no SPA). Cada vista es una página independiente.
 - **TypeScript** transpilado a JS para los scripts de cliente.
 - **Tailwind CSS 4.x** vía CLI oficial. Reemplaza completamente a Bootstrap. Sin coexistencia: la migración es total.
-- **Awesomplete** se conserva como dependencia npm (autocompletado del input de cartas) salvo que durante implementación encontremos un sustituto trivial.
+- **Autocompletado propio** (`src/client/components/autocomplete.ts`, con el ranking de `src/client/lib/name-search.ts`): Awesomplete se descartó y no es dependencia.
 - **jQuery se elimina**. Toda manipulación de DOM en cliente usa APIs nativas.
 - **TaffyDB se elimina**. Las consultas in-memory pasan a estructuras nativas (`Map<id, Card>`, índices propios).
 
@@ -30,15 +30,15 @@ Estado: BORRADOR
 
 - **Vite 6.x** para empaquetar los scripts de cliente a `public/dist/`.
 - **Tailwind CLI** genera `public/dist/styles.css` desde `src/client/styles/tailwind.css`.
-- **tsx** para ejecutar scripts TS de mantenimiento (regeneración de datos, etc.) sin compilación previa.
+- **tsx** ejecuta el servidor en desarrollo sin compilar (`npm run dev`, vía `nodemon.json`). Está previsto usarlo también para los scripts TS de mantenimiento (ver «Datos»).
 - **tsc** compila el código del servidor a `dist/server/`.
 - En producción (Render), `npm run build` ejecuta: typecheck + bundle cliente + Tailwind + compilación servidor.
 
 ## Datos
 
 - Fuente de verdad: `data/Cards.json`.
-- Derivados (`fusions.json`, `equips.json`, `results.json`) generados por script Node TS en `src/scripts/`.
-- Los scripts Ruby existentes (`scripts/*.rb`) se reescriben a TS y se eliminan.
+- Derivados (`fusions.json`, `equips.json`, `results.json`) generados por `scripts/make_databases.rb` (Ruby).
+- Pendiente: reescribir los scripts Ruby (`scripts/*.rb`) a TS en `src/scripts/` y eliminarlos.
 
 ## Tipos compartidos
 
@@ -48,7 +48,7 @@ Estado: BORRADOR
 ## Testing
 
 - **Vitest 3.x** para tests unitarios (servidor, cliente y `shared`).
-- **Playwright 1.5x** para tests E2E contra el servidor levantado en local.
+- **Playwright 1.5x** para tests E2E contra la app compilada, levantada en local con `npm run start` (hay que ejecutar `npm run build` antes).
 - Umbral mínimo de cobertura: **80%** statements/branches/functions/lines, medido con `@vitest/coverage-v8`.
 - E2E no cuenta para el porcentaje; cubre los flujos críticos (búsqueda, calculadora, cambio de idioma).
 
@@ -63,7 +63,7 @@ Estado: BORRADOR
 - Idioma por defecto: **español**.
 - Idiomas soportados inicialmente: `es`, `en`.
 - Mecanismo: solución casera basada en JSON (`src/shared/i18n/{es,en}.json`), sin librería externa.
-- Detección automática vía `navigator.language` con fallback a `es`. Selector manual visible que sobrescribe la detección y persiste en `localStorage`.
+- Detección en servidor: cookie `lang`, luego cabecera `Accept-Language`, con fallback a `es`. Selector manual visible (formulario `POST /lang`) que fija la cookie `lang`.
 
 ## Despliegue
 
@@ -90,7 +90,7 @@ Estado: BORRADOR
 - jQuery
 - Bootstrap (CSS y JS)
 - TaffyDB
-- Scripts Ruby
+- Scripts Ruby (pendiente: siguen en `scripts/`)
 
 ## Versionado del proyecto
 
