@@ -1,10 +1,10 @@
 import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
-import { renderPair, renderRitual } from "../components/fusion-card.js";
+import { renderChain, renderEquip, renderPair, renderRitual } from "../components/fusion-card.js";
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
-import type { CalculatorResponse, CardSummary, ChainResult, RitualExpanded } from "../../shared/types.js";
+import type { CalculatorResponse, CardSummary, RitualExpanded } from "../../shared/types.js";
 import { MAX_HAND_SIZE } from "../../shared/limits.js";
-import { MIN_HAND_SIZE, canRemoveSlot, getValidIds } from "../lib/slots.js";
+import { MIN_HAND_SIZE, canAddSlot, canRemoveSlot, getValidIds } from "../lib/slots.js";
 import { createCardImg } from "../lib/card-image.js";
 import { clear, qs } from "../lib/dom.js";
 import { createLatest, type Latest } from "../lib/latest.js";
@@ -29,6 +29,9 @@ type SlotProblem = "invalid" | "lookup-failed";
 
 const ALERT_CLASS = "rounded p-3 mb-4 bg-red-100 text-red-800 border border-red-300 font-body text-sm";
 const SLOT_ALERT_CLASS = "mt-1 text-xs text-rose-700 font-body text-center leading-tight";
+const STATUS_CLASS = "text-center font-body text-sm text-fm-primary/80 my-4";
+const NONE_CLASS = "text-center font-body text-sm text-fm-primary/80 mb-3";
+const NOTE_CLASS = "rounded p-3 mb-4 bg-amber-50 text-amber-900 border border-amber-300 font-body text-sm";
 
 document.addEventListener("DOMContentLoaded", () => {
     mountNavbar();
@@ -43,6 +46,8 @@ function mountCalculatorPage(): void {
     const outputRight = qs<HTMLElement>("#outputarearight");
     const outputRituals = qs<HTMLElement>("#rituals-output");
     const resultsError = qs<HTMLElement>("#results-error");
+    const resultsStatus = qs<HTMLElement>("#results-status");
+    const addSlotHint = qs<HTMLElement>("#add-slot-hint");
     const indexError = qs<HTMLElement>("#index-error");
     const indexRetryBtn = qs<HTMLButtonElement>("#indexRetryBtn");
     const chainBtn = qs<HTMLButtonElement>("#chainBtn");
@@ -55,6 +60,8 @@ function mountCalculatorPage(): void {
         !outputRight ||
         !outputRituals ||
         !resultsError ||
+        !resultsStatus ||
+        !addSlotHint ||
         !indexError ||
         !indexRetryBtn ||
         !chainBtn ||
@@ -92,11 +99,27 @@ function mountCalculatorPage(): void {
         clear(resultsError);
     };
 
+    // What the panel says while it has nothing to list: a hint, the loading text, or nothing.
+    const setStatus = (message: string | null): void => {
+        // The region is announced when its text changes, so the same message is not written again.
+        if ((resultsStatus.textContent ?? "") === (message ?? "")) return;
+        clear(resultsStatus);
+        if (message === null) return;
+        const p = document.createElement("p");
+        p.className = STATUS_CLASS;
+        p.textContent = message;
+        resultsStatus.appendChild(p);
+    };
+
+    const showHint = (): void => setStatus(t("calculator.results.hint"));
+
     const renderResults = (result: CalculatorResponse): void => {
         appendHeader(outputLeft, t("search.results.fusions"));
         for (const fusion of result.fusions) outputLeft.appendChild(renderPair(fusion));
+        if (result.fusions.length === 0) appendNone(outputLeft, t("calculator.results.no-fusions"));
         appendHeader(outputRight, t("search.results.equips"));
-        for (const equip of result.equips) outputRight.appendChild(renderPair(equip));
+        for (const equip of result.equips) outputRight.appendChild(renderEquip(equip));
+        if (result.equips.length === 0) appendNone(outputRight, t("calculator.results.no-equips"));
         showRituals(outputRituals, result.rituals);
     };
 
@@ -117,17 +140,23 @@ function mountCalculatorPage(): void {
         resetChain();
         const run = refreshLatest.begin();
         clearResults();
-        if (handIds.length < 2) return;
+        if (handIds.length < 2) {
+            showHint();
+            return;
+        }
+        setStatus(t("calculator.results.loading"));
         let result: CalculatorResponse;
         try {
             result = await calculate(handIds, run.signal);
         } catch {
             if (!run.isCurrent()) return;
             shownKey = null;
+            setStatus(null);
             appendAlert(resultsError, t("calculator.results.error"), ALERT_CLASS);
             return;
         }
         if (!run.isCurrent()) return;
+        setStatus(null);
         renderResults(result);
     };
 
@@ -148,11 +177,15 @@ function mountCalculatorPage(): void {
         }
     };
 
-    const updateRemoveBtns = (): void => {
+    // At the cap "Add card" is off and the hint says why; a slot removed brings it back.
+    const updateSlotControls = (): void => {
         const removable = canRemoveSlot(slots.length);
         for (const slot of slots) {
             slot.removeBtn.classList.toggle("hidden", !removable);
         }
+        const addable = canAddSlot(slots.length);
+        addBtn.disabled = !addable;
+        addSlotHint.textContent = addable ? "" : t("calculator.hand.max-reached", { max: MAX_HAND_SIZE });
     };
 
     function setSlotCard(slot: SlotState, card: CardSummary | null): void {
@@ -196,7 +229,9 @@ function mountCalculatorPage(): void {
         }
     };
 
+    // The cap is enforced here, not only by the disabled button, so no caller can grow the hand past it.
     const addSlot = (): void => {
+        if (!canAddSlot(slots.length)) return;
         const n = slots.length + 1;
 
         const cell = document.createElement("div");
@@ -317,11 +352,11 @@ function mountCalculatorPage(): void {
             state.lookup.cancel();
             slots.splice(idx, 1);
             slotsContainer.removeChild(cell);
-            updateRemoveBtns();
+            updateSlotControls();
             void refresh();
         });
 
-        updateRemoveBtns();
+        updateSlotControls();
     };
 
     // One request at a time: the button is disabled while it is in flight.
@@ -339,11 +374,9 @@ function mountCalculatorPage(): void {
         try {
             const res = await chainSearch(handIds, run.signal);
             if (!run.isCurrent()) return;
-            if (res.chains.length === 0) {
-                chainOutput.textContent = t("calculator.chain.no-result");
-            } else {
-                for (const chain of res.chains) chainOutput.appendChild(renderChain(chain));
-            }
+            if (res.truncated) appendNote(chainOutput, t("calculator.chain.truncated"));
+            if (res.chains.length === 0) chainOutput.append(t("calculator.chain.no-result"));
+            for (const chain of res.chains) chainOutput.appendChild(renderChain(chain));
         } catch (err) {
             if (!run.isCurrent()) return;
             appendAlert(chainOutput, describeChainError(err), ALERT_CLASS);
@@ -364,10 +397,12 @@ function mountCalculatorPage(): void {
             setSlotCard(slot, null);
         }
         clearResults();
+        showHint();
         resetChain();
     });
 
     for (let i = 0; i < MIN_HAND_SIZE; i++) addSlot();
+    showHint();
     void loadIndex();
 }
 
@@ -411,6 +446,22 @@ function appendHeader(where: HTMLElement, label: string): void {
     where.appendChild(h2);
 }
 
+// A <p>, not a <div>, so the entries of a column stay exactly its <div> children.
+function appendNone(where: HTMLElement, message: string): void {
+    const p = document.createElement("p");
+    p.className = NONE_CLASS;
+    p.textContent = message;
+    where.appendChild(p);
+}
+
+function appendNote(where: HTMLElement, message: string): void {
+    const note = document.createElement("p");
+    note.setAttribute("role", "note");
+    note.className = NOTE_CLASS;
+    note.textContent = message;
+    where.appendChild(note);
+}
+
 // Hidden with the class, not just emptied: the block has a top margin that would leave a gap.
 function hideRituals(where: HTMLElement): void {
     clear(where);
@@ -425,20 +476,4 @@ function showRituals(where: HTMLElement, rituals: readonly RitualExpanded[]): vo
     for (const ritual of rituals) list.appendChild(renderRitual(ritual));
     where.appendChild(list);
     where.classList.remove("hidden");
-}
-
-function renderChain(chain: ChainResult): HTMLElement {
-    const div = document.createElement("div");
-    div.className = "mb-6 p-4 border border-fm-primary/20 rounded";
-    for (const [i, step] of chain.steps.entries()) {
-        const p = document.createElement("p");
-        p.className = "font-body text-sm mb-1";
-        p.textContent = `${t("calculator.chain.step", { n: i + 1 })}: ${step.card1.name} + ${step.card2.name} → ${step.result.name} (${step.result.attack} ATK)`;
-        div.appendChild(p);
-    }
-    const summary = document.createElement("p");
-    summary.className = "font-display text-sm mt-2 font-bold";
-    summary.textContent = t("calculator.chain.final-atk", { atk: String(chain.finalCard.attack) });
-    div.appendChild(summary);
-    return div;
 }

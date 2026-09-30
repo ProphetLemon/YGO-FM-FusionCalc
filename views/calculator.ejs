@@ -16,11 +16,12 @@
             </button>
         </div>
         <div id="hand-slots" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3"></div>
-        <div class="flex flex-wrap gap-3 mt-6">
+        <div class="flex flex-wrap items-center gap-3 mt-6">
             <button
                 type="button"
                 id="addSlotBtn"
-                class="px-4 py-2 bg-fm-primary text-white rounded hover:bg-fm-primary/80 font-display text-sm"
+                aria-describedby="add-slot-hint"
+                class="px-4 py-2 bg-fm-primary text-white rounded hover:bg-fm-primary/80 font-display text-sm disabled:opacity-50"
             >
                 <%= t('calculator.btn.add-slot') %>
             </button>
@@ -31,6 +32,7 @@
             >
                 <%= t('calculator.btn.reset') %>
             </button>
+            <p id="add-slot-hint" role="status" class="font-body text-sm"></p>
         </div>
     </section>
 
@@ -39,6 +41,7 @@
             <%= t('calculator.results.title') %>
         </h4>
         <div id="results-error"></div>
+        <div id="results-status" role="status" aria-live="polite"></div>
         <div class="grid md:grid-cols-2 gap-4">
             <div id="outputarealeft"></div>
             <div id="outputarearight"></div>

@@ -1,9 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
     MIN_HAND_SIZE,
+    canAddSlot,
     canRemoveSlot,
     getValidIds,
 } from "../../../src/client/lib/slots.js";
+import { MAX_HAND_SIZE } from "../../../src/shared/limits.js";
+
+describe("canAddSlot", () => {
+    it("allows adding from the starting size up to one below the cap", () => {
+        expect(canAddSlot(MIN_HAND_SIZE)).toBe(true);
+        expect(canAddSlot(MAX_HAND_SIZE - 1)).toBe(true);
+    });
+
+    it("blocks adding at the cap", () => {
+        expect(canAddSlot(MAX_HAND_SIZE)).toBe(false);
+    });
+
+    it("blocks adding above the cap", () => {
+        expect(canAddSlot(MAX_HAND_SIZE + 1)).toBe(false);
+    });
+
+    it("keeps the starting size inside the cap", () => {
+        expect(MIN_HAND_SIZE).toBeLessThan(MAX_HAND_SIZE);
+    });
+});
 
 describe("canRemoveSlot", () => {
     it("allows removing when above min", () => {
