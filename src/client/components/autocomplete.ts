@@ -1,8 +1,12 @@
+import { rankNameMatches } from "../lib/name-search.js";
+
 export interface AutocompleteOptions {
     fetchList: () => Promise<readonly string[]>;
     onSelect?: (value: string) => void;
     limit?: number;
 }
+
+const DEFAULT_LIMIT = 8;
 
 const LIST_CLASSNAME =
     "absolute z-20 left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-white text-fm-primary rounded shadow-lg border border-fm-primary/30 hidden";
@@ -56,13 +60,9 @@ export class Autocomplete {
 
     private async onInput(): Promise<void> {
         await this.ensureLoaded();
-        const q = this.input.value.trim().toLowerCase();
-        if (q.length === 0) {
-            this.hide();
-            return;
-        }
-        const limit = this.options.limit ?? 8;
-        this.filtered = this.items.filter((it) => it.toLowerCase().startsWith(q)).slice(0, limit);
+        // A slow or retried list can arrive after the user moved on: it must not open under another field.
+        if (document.activeElement !== this.input) return;
+        this.filtered = rankNameMatches(this.items, this.input.value, this.options.limit ?? DEFAULT_LIMIT);
         this.activeIndex = this.filtered.length > 0 ? 0 : -1;
         this.render();
     }
