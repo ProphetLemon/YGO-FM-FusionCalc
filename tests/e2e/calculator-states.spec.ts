@@ -46,7 +46,7 @@ const PASSWORD = {
 };
 
 const TEXT = {
-    hint: "Añade al menos dos cartas a tu mano para ver fusiones, equipos y rituales.",
+    hint: "Añade al menos 2 cartas para ver fusiones y equipos. Los rituales necesitan la carta de ritual y sus tres materiales.",
     loading: "Calculando resultados…",
     noFusions: "No hay fusiones posibles con esta mano.",
     noEquips: "No hay equipos posibles con esta mano.",
@@ -712,7 +712,7 @@ test.describe("in English", () => {
     test("translates the hint, the loading text and the empty columns", async ({ page }) => {
         await openCalculator(page);
         await expect(statusRegion(page)).toHaveText(
-            "Add at least two cards to your hand to see fusions, equips and rituals."
+            "Add at least 2 cards to see fusions and equips. Rituals need the ritual card and its three materials."
         );
         const held = await holdRequests(page, isCalculator);
 

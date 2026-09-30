@@ -51,7 +51,7 @@
     "calculator.slot.empty": "Search card",
     "calculator.index.error": "The card list could not be loaded.",
     "calculator.results.title": "Results",
-    "calculator.results.hint": "Add at least two cards to your hand to see fusions, equips and rituals.",
+    "calculator.results.hint": "Add at least 2 cards to see fusions and equips. Rituals need the ritual card and its three materials.",
     "calculator.results.loading": "Calculating results…",
     "calculator.results.no-fusions": "No fusions are possible with this hand.",
     "calculator.results.no-equips": "No equips are possible with this hand.",

@@ -1,7 +1,7 @@
 import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
 import { renderCardSummary } from "../components/card-display.js";
-import { renderPair } from "../components/fusion-card.js";
+import { renderEquip, renderPair } from "../components/fusion-card.js";
 import { getCardByName, getCardsIndex, getFusions, getResults } from "../lib/api.js";
 import { clear, qs } from "../lib/dom.js";
 import { t } from "../lib/i18n.js";
@@ -71,7 +71,7 @@ async function mountSearchPage(): Promise<void> {
         renderHeader(outputLeft, t("search.results.fusions"));
         for (const fusion of data.fusions) outputLeft.appendChild(renderPair(fusion));
         renderHeader(outputRight, t("search.results.equips"));
-        for (const equip of data.equips) outputRight.appendChild(renderPair(equip));
+        for (const equip of data.equips) outputRight.appendChild(renderEquip(equip));
     };
 
     const runByResult = async (): Promise<void> => {

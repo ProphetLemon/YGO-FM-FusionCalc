@@ -51,7 +51,7 @@
     "calculator.slot.empty": "Buscar carta",
     "calculator.index.error": "No se pudo cargar la lista de cartas.",
     "calculator.results.title": "Resultados",
-    "calculator.results.hint": "Añade al menos dos cartas a tu mano para ver fusiones, equipos y rituales.",
+    "calculator.results.hint": "Añade al menos 2 cartas para ver fusiones y equipos. Los rituales necesitan la carta de ritual y sus tres materiales.",
     "calculator.results.loading": "Calculando resultados…",
     "calculator.results.no-fusions": "No hay fusiones posibles con esta mano.",
     "calculator.results.no-equips": "No hay equipos posibles con esta mano.",
