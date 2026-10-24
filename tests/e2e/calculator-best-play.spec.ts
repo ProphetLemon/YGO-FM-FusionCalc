@@ -107,7 +107,7 @@ test.describe("the best play for the real hand", () => {
         );
         expect(numberSize).toBeGreaterThanOrEqual(Math.max(...fontSizes));
         expect(numberSize).toBeGreaterThanOrEqual(40);
-        await expect(number).toHaveCSS("font-family", /JetBrains Mono/);
+        await expect(number).toHaveCSS("font-family", /Chakra Petch/);
     });
 
     test("makes the final card clearly bigger than the cards of the steps", async ({ page }) => {

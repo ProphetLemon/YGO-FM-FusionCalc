@@ -1,15 +1,42 @@
 @import "tailwindcss";
 
 @theme {
-    --font-body: "Varela Round", "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
-    --font-display: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --font-body: "Hanken Grotesk", system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-display: "Chakra Petch", system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
 
+    /* Workbench palette (docs: odd/tasks/workbench-reskin.md, D2). Radius stays 0 everywhere. */
+    --color-wb-page: #b9b9b3;
+    --color-wb-plate: #d4d4ce;
+    --color-wb-plate-hover: #e2e2dc;
+    --color-wb-well: #edede9;
+    --color-wb-bar: #cfcfc9;
+    --color-wb-hi: #ffffff;
+    --color-wb-lo: #5e605a;
+    --color-wb-ink: #1e2024;
+    --color-wb-mute: #43454c;
+    --color-wb-subtle: #30323a;
+    --color-wb-blue: #1f46b0;
+    --color-wb-green: #176232;
+    --color-wb-red: #a3201a;
+    --color-wb-pink: #9c2266;
+    --color-wb-grey: #3c3e45;
+    --color-wb-disabled: #c4c4be;
+    --color-wb-disabled-text: #5c5e66;
+    --color-wb-empty: #c2c2bc;
+    --color-wb-art: #2b2e36;
+    --color-wb-rule: #b3b3ad;
+    --color-wb-vent: #8e8e88;
+    --color-wb-best: #ddf1e3;
+    --color-card-monster: #f7f7f3;
+    --color-card-fusion: #8fd6a5;
+    --color-card-equip: #f0a29b;
+    --color-card-magic: #efa8cb;
+
+    /* Legacy tokens still used by page content until T2/T3 restyle it. */
     --color-fm-primary: rgb(30 35 55);
     --color-fm-search-bg: rgb(244 244 245);
     --color-fm-calculator-bg: rgb(255 134 82);
     --color-fm-calculator-fg: rgb(122 10 0);
-    --color-fm-about-cta: rgb(243 178 166);
-    --color-fm-about-cta-hover: rgb(237 139 121);
 
     --animate-hero-slide: hero-slide 1s 1;
 }
@@ -25,29 +52,124 @@
     }
 }
 
-@utility bg-vrains {
-    background-image:
-        linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url("/public/images/background.png");
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: cover;
+/* Focus: one visible style on every control; white inside coloured header bars. */
+@layer base {
+    :focus-visible {
+        outline: 3px solid var(--color-wb-ink);
+        outline-offset: 2px;
+    }
+    .win-bar :focus-visible {
+        outline-color: var(--color-wb-hi);
+    }
 }
 
-@utility bg-polymerization {
-    background-image:
-        linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url("/public/images/fusion_background.jpg");
-    background-repeat: repeat-y;
-    background-position: center;
-    background-size: cover;
+/* Bevels. `raise` is a plate that pops out; `sink` is a well or a pressed control. */
+@utility raise {
+    background-color: var(--color-wb-plate);
+    border: 2px solid;
+    border-color: var(--color-wb-hi) var(--color-wb-lo) var(--color-wb-lo) var(--color-wb-hi);
 }
 
-@utility bg-lost-memories {
-    background-image:
-        linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url("/public/images/lost_memories.jpg");
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: cover;
-    text-shadow: 2px 2px 6px black;
+@utility sink {
+    background-color: var(--color-wb-well);
+    border: 2px solid;
+    border-color: var(--color-wb-lo) var(--color-wb-hi) var(--color-wb-hi) var(--color-wb-lo);
+}
+
+/* Clickable plate: raised, hover tint, pressed (sunken) on :active, flat grey when disabled. */
+@utility wb-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 18px;
+    font-weight: 700;
+    color: var(--color-wb-ink);
+    background-color: var(--color-wb-plate);
+    border: 2px solid;
+    border-color: var(--color-wb-hi) var(--color-wb-lo) var(--color-wb-lo) var(--color-wb-hi);
+    cursor: pointer;
+    &:hover {
+        background-color: var(--color-wb-plate-hover);
+    }
+    &:active {
+        border-color: var(--color-wb-lo) var(--color-wb-hi) var(--color-wb-hi) var(--color-wb-lo);
+    }
+    &:disabled {
+        background-color: var(--color-wb-disabled);
+        color: var(--color-wb-disabled-text);
+        cursor: not-allowed;
+    }
+}
+
+/* Text input: sunken white well. */
+@utility wb-input {
+    min-height: 44px;
+    padding: 0 12px;
+    color: var(--color-wb-ink);
+    background-color: #fff;
+    border: 2px solid;
+    border-color: var(--color-wb-lo) var(--color-wb-hi) var(--color-wb-hi) var(--color-wb-lo);
+}
+
+/* Panel: `win` box with `win-bar` header (pick one colour variant) and `win-body` content. */
+@utility win {
+    background-color: var(--color-wb-plate);
+    border: 2px solid;
+    border-color: var(--color-wb-hi) var(--color-wb-lo) var(--color-wb-lo) var(--color-wb-hi);
+    box-shadow: 2px 2px 0 var(--color-wb-ink);
+}
+
+@utility win-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 44px;
+    padding: 4px 10px 4px 14px;
+    color: #fff;
+    background-color: var(--wb-bar, var(--color-wb-grey));
+}
+
+@utility win-bar-grey {
+    --wb-bar: var(--color-wb-grey);
+}
+
+@utility win-bar-blue {
+    --wb-bar: var(--color-wb-blue);
+}
+
+@utility win-bar-green {
+    --wb-bar: var(--color-wb-green);
+}
+
+@utility win-bar-red {
+    --wb-bar: var(--color-wb-red);
+}
+
+@utility win-bar-pink {
+    --wb-bar: var(--color-wb-pink);
+}
+
+/* Panel heading inside a `win-bar` (Chakra Petch, 19px). */
+@utility win-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 19px;
+    line-height: 1.2;
+    color: #fff;
+}
+
+@utility win-body {
+    padding: 16px 18px 18px;
+}
+
+/* Ruler strip under the top bar. */
+@utility vent {
+    height: 8px;
+    background: repeating-linear-gradient(90deg, var(--color-wb-vent) 0 3px, transparent 3px 9px);
 }
 
 @utility cover-glow {

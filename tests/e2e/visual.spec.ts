@@ -1,42 +1,53 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("visual identity", () => {
-    test("body uses Varela Round font on home", async ({ page }) => {
+    const PAGES = ["/", "/search", "/calculator", "/about"];
+
+    for (const path of PAGES) {
+        test.describe(path, () => {
+            test("body uses Hanken Grotesk", async ({ page }) => {
+                await page.goto(path);
+                const fontFamily = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
+                expect(fontFamily.toLowerCase()).toContain("hanken grotesk");
+            });
+
+            test("headings use Chakra Petch", async ({ page }) => {
+                await page.goto(path);
+                const heading = page.locator("main h1, main h2, main h3").first();
+                const fontFamily = await heading.evaluate((el) => getComputedStyle(el).fontFamily);
+                expect(fontFamily.toLowerCase()).toContain("chakra petch");
+            });
+
+            test("body has the flat page grey and no photo background", async ({ page }) => {
+                await page.goto(path);
+                const { backgroundColor, backgroundImage } = await page.evaluate(() => {
+                    const cs = getComputedStyle(document.body);
+                    return { backgroundColor: cs.backgroundColor, backgroundImage: cs.backgroundImage };
+                });
+                expect(backgroundColor).toBe("rgb(185, 185, 179)");
+                expect(backgroundImage).toBe("none");
+            });
+
+            test("no element on the page uses a photo background", async ({ page }) => {
+                await page.goto(path);
+                const photos = await page.evaluate(() =>
+                    [...document.querySelectorAll("*")]
+                        .map((el) => getComputedStyle(el).backgroundImage)
+                        .filter((image) => /background\.png|fusion_background|lost_memories/.test(image))
+                );
+                expect(photos).toEqual([]);
+            });
+        });
+    }
+
+    test("page headings no longer use the old fonts", async ({ page }) => {
         await page.goto("/");
-        const fontFamily = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
-        expect(fontFamily.toLowerCase()).toContain("varela round");
-    });
-
-    test("home hero section has the vrains background image", async ({ page }) => {
-        await page.goto("/");
-        const heroSection = page.locator("section.bg-vrains").first();
-        const backgroundImage = await heroSection.evaluate((el) => getComputedStyle(el).backgroundImage);
-        expect(backgroundImage).toContain("background.png");
-    });
-
-    test("hero h1 uses JetBrains Mono", async ({ page }) => {
-        await page.goto("/");
-        const h1 = page.locator("h1").first();
-        const fontFamily = await h1.evaluate((el) => getComputedStyle(el).fontFamily);
-        expect(fontFamily.toLowerCase()).toContain("jetbrains mono");
-    });
-
-    test("search page body has polymerization background", async ({ page }) => {
-        await page.goto("/search");
-        const backgroundImage = await page.evaluate(() => getComputedStyle(document.body).backgroundImage);
-        expect(backgroundImage).toContain("fusion_background.jpg");
-    });
-
-    test("calculator page body has polymerization background", async ({ page }) => {
-        await page.goto("/calculator");
-        const backgroundImage = await page.evaluate(() => getComputedStyle(document.body).backgroundImage);
-        expect(backgroundImage).toContain("fusion_background.jpg");
-    });
-
-    test("about page body has fm-primary background colour", async ({ page }) => {
-        await page.goto("/about");
-        const backgroundColor = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-        expect(backgroundColor).toBe("rgb(30, 35, 55)");
+        const fontFamily = await page
+            .locator("h1")
+            .first()
+            .evaluate((el) => getComputedStyle(el).fontFamily);
+        expect(fontFamily.toLowerCase()).not.toContain("jetbrains");
+        expect(fontFamily.toLowerCase()).not.toContain("varela");
     });
 
     test.describe("no page loads Bootstrap CSS", () => {
@@ -71,7 +82,7 @@ test.describe("visual identity", () => {
                 .first()
                 .evaluate((el) => {
                     const cs = getComputedStyle(el);
-                    return { color: cs.color, fontFamily: cs.fontFamily };
+                    return { fontFamily: cs.fontFamily, minHeight: cs.minHeight, fontWeight: cs.fontWeight };
                 });
             return { container, link };
         };
@@ -82,5 +93,16 @@ test.describe("visual identity", () => {
         expect(search).toEqual(home);
         expect(calculator).toEqual(home);
         expect(about).toEqual(home);
+    });
+
+    test("top bar shows the ruler strip and a raised brand plate linking home", async ({ page }) => {
+        await page.goto("/calculator");
+        await expect(page.locator("header .vent")).toHaveAttribute("aria-hidden", "true");
+        const brand = page.locator('header a[href="/"]').first();
+        await expect(brand.locator("img")).toBeVisible();
+        const background = await page
+            .locator("header")
+            .evaluate((el) => getComputedStyle(el).backgroundColor);
+        expect(background).toBe("rgb(207, 207, 201)");
     });
 });

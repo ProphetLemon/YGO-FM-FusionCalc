@@ -7,7 +7,6 @@ interface PageOptions {
     pageTitle: string;
     pageStyles?: readonly string[];
     pageScripts?: readonly string[];
-    bodyClass?: string;
     activeNav: "home" | "search" | "calculator" | "about";
 }
 
@@ -15,7 +14,6 @@ function renderPage(res: Response, locals: PageOptions): void {
     res.render("layouts/main", {
         pageStyles: [],
         pageScripts: [],
-        bodyClass: "",
         year: new Date().getFullYear(),
         catalog: getCatalog(res.locals.lang),
         ...locals,
@@ -49,7 +47,6 @@ export function viewsRouter(): Router {
             contentView: "search",
             pageTitle: res.locals.t("page.search.title"),
             activeNav: "search",
-            bodyClass: "bg-polymerization text-fm-primary",
             pageScripts: searchBundle ? [searchBundle] : [],
         });
     });
@@ -60,7 +57,6 @@ export function viewsRouter(): Router {
             contentView: "calculator",
             pageTitle: res.locals.t("page.calculator.title"),
             activeNav: "calculator",
-            bodyClass: "bg-polymerization text-fm-primary",
             pageScripts: calculatorBundle ? [calculatorBundle] : [],
         });
     });
@@ -71,7 +67,6 @@ export function viewsRouter(): Router {
             contentView: "about",
             pageTitle: res.locals.t("page.about.title"),
             activeNav: "about",
-            bodyClass: "bg-fm-primary text-white",
             pageScripts: aboutBundle ? [aboutBundle] : [],
         });
     });

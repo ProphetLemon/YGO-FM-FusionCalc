@@ -27,6 +27,43 @@ test.describe("page navigation", () => {
     });
 });
 
+test.describe("top bar links", () => {
+    const pages = [
+        { path: "/", name: /Inicio/i },
+        { path: "/search", name: /Buscador/i },
+        { path: "/calculator", name: /Calculadora/i },
+        { path: "/about", name: /Acerca/i },
+    ];
+
+    test("lists Home first, before the other pages", async ({ page }) => {
+        await page.goto("/search");
+        const labels = await page.locator("#primary-navigation a").allTextContents();
+        expect(labels[0]).toMatch(/Inicio/i);
+        await page
+            .getByRole("link", { name: /Inicio/i })
+            .first()
+            .click();
+        await expect(page).toHaveURL(/\/$/);
+    });
+
+    for (const { path, name } of pages) {
+        test(`${path} marks only its own link with aria-current="page"`, async ({ page }) => {
+            await page.goto(path);
+            const current = page.locator('#primary-navigation a[aria-current="page"]');
+            await expect(current).toHaveCount(1);
+            await expect(current).toHaveText(name);
+            await expect(current).toHaveAttribute("href", path);
+        });
+    }
+
+    test("the language button of the current language is pressed and disabled", async ({ page }) => {
+        await page.goto("/");
+        await expect(page.getByRole("button", { name: "Español" })).toHaveAttribute("aria-pressed", "true");
+        await expect(page.getByRole("button", { name: "Español" })).toBeDisabled();
+        await expect(page.getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "false");
+    });
+});
+
 test.describe("legacy redirects", () => {
     const cases = [
         { from: "/index.html", to: "/" },
