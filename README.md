@@ -11,14 +11,15 @@ Basada en el proyecto original de [Solumin](https://github.com/Solumin/YGO-FM-Fu
 ## Funcionalidades
 
 - **Buscador de fusiones** — busca todas las fusiones y equipos posibles para una carta concreta; los equipos indican qué carta es el Equip y cuál el monstruo.
-- **Calculadora de mano** — introduce tu mano y obtén al instante todas las fusiones, equipos y rituales disponibles. Empieza con 5 ranuras y admite hasta 12, con un contador que indica cuántas hay de las 12 posibles; se guarda en el navegador y sobrevive a las recargas y al cambio de idioma. Muestra una pista hasta tener 2 cartas, un indicador de carga, mensajes cuando no hay resultados y un aviso con reintento si falla la lista de cartas.
+- **Calculadora de mano** — introduce tu mano y obtén al instante todas las fusiones, equipos y rituales disponibles. Empieza con 5 ranuras y admite hasta 12, con un contador y un medidor que indican cuántas hay de las 12 posibles. Cada carta de la mano se muestra como una ficha con su imagen, su ATK/DEF o su tipo y un marco de color según su clase (monstruo, fusión, equipo o magia), con una leyenda debajo. La mano se guarda en el navegador y sobrevive a las recargas y al cambio de idioma. Muestra una pista hasta tener 2 cartas, un indicador de carga, mensajes cuando no hay resultados y un aviso con reintento si falla la lista de cartas.
 - **Dos columnas** — en pantallas anchas la mano queda a la izquierda y la respuesta a la derecha. En el móvil, en cuanto la mano tiene 2 cartas, la respuesta pasa por encima de la mano.
-- **Resultados por tipo** — cada fusión muestra primero la carta que se obtiene, con su imagen, y debajo las dos cartas que la forman. Las fusiones que dan un monstruo van primero; las que dan otro tipo de carta van en un bloque aparte, «Resultados que no son monstruos».
+- **Resultados por tipo** — las fusiones se muestran en una tabla con la carta que se obtiene, su ATK/DEF y las dos cartas que la forman. Las que dan un monstruo van primero y la primera lleva la etiqueta «Mejor fusión simple»; las que dan otro tipo de carta van en un apartado de la misma tabla, «Resultados que no son monstruos», con «Sin ATK». Los equipos van en su propio panel (equipo → monstruo) y los rituales en otro, que indica cuándo no hay ninguno.
 - **Rituales** — un ritual aparece cuando la mano contiene la carta de ritual y sus tres materiales (se cuentan las copias).
-- **Cadena óptima de fusiones** — con 2 cartas o más, la calculadora busca sola, sin pulsar ningún botón, las secuencias de fusiones que maximizan el ATK del resultado final: hasta 5 cadenas, una por monstruo final y por su ruta más corta, ordenadas por ATK y, a igualdad, por menos pasos. La mejor jugada va primero: una frase dice qué carta se obtiene y en cuántos pasos, la carta final aparece grande con su ATK y, si supera a la mejor fusión simple de la mano, se indica cuánto ATK gana. Las demás cadenas quedan plegadas en «Otras cadenas». Si la búsqueda falla, un botón permite reintentarla.
+- **Cadena óptima de fusiones** — con 2 cartas o más, la calculadora busca sola, sin pulsar ningún botón, las secuencias de fusiones que maximizan el ATK del resultado final: hasta 5 cadenas, una por monstruo final y por su ruta más corta, ordenadas por ATK y, a igualdad, por menos pasos. La mejor jugada va primero: una frase dice qué carta se obtiene y en cuántos pasos, la carta final aparece grande con su ATK y, si supera a la mejor fusión simple de la mano, se indica cuánto ATK gana. Cada cadena tiene su pestaña, con la mejor primero. Los pasos se muestran como «carta + carta = resultado», y la carta que sale de un paso anterior lleva la nota «Resultado del paso N». Si la búsqueda falla, un botón permite reintentarla.
 - **Autocompletado** — hasta 8 sugerencias por prefijo, inicio de palabra o subcadena, sin distinguir mayúsculas, acentos, guiones ni signos de puntuación.
 - **Imágenes de carta** — artwork real de cada carta vía CDN de YGOProDeck; si una carta no tiene, se muestra un marcador con su nombre.
 - **i18n** — interfaz disponible en español e inglés.
+- **Estilo Workbench** — todas las páginas usan paneles en relieve con cabecera de color sobre un fondo gris, con las fuentes Chakra Petch y Hanken Grotesk.
 
 ---
 
@@ -131,6 +132,7 @@ App Express + EJS renderizada en servidor con cliente TypeScript compilado con V
 - [x] Autocompletado por subcadena
 - [x] Estados de la calculadora: pista, carga, sin resultados y errores con reintento
 - [x] Rediseño de la calculadora: mejor jugada primero, resultados por tipo y dos columnas
+- [x] Estilo Workbench en todo el sitio: pestañas de cadenas, tabla de fusiones y paneles de equipos y rituales
 - [ ] Filtros y ordenación por tipo, ATK/DEF y estrellas
 - [ ] Constructor de mazo persistido en `localStorage`
 - [ ] Vista de detalle de carta mejorada
