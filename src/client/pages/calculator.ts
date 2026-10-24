@@ -1,12 +1,7 @@
 import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
-import {
-    renderBestChain,
-    renderEquip,
-    renderFusion,
-    renderOtherChains,
-    renderRitual,
-} from "../components/fusion-card.js";
+import { renderChains } from "../components/chain-panel.js";
+import { renderEquip, renderFusion, renderRitual } from "../components/fusion-card.js";
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
 import type { CalculatorResponse, CardSummary, FusionExpanded, RitualExpanded } from "../../shared/types.js";
 import { MAX_HAND_SIZE } from "../../shared/limits.js";
@@ -209,10 +204,8 @@ function mountCalculatorPage(): void {
             const [res, calculated] = await Promise.all([chainSearch(handIds, run.signal), calculation]);
             if (!run.isCurrent()) return;
             if (res.truncated) appendNote(chainOutput, t("calculator.chain.truncated"));
-            const [best, ...others] = res.chains;
-            if (best === undefined) chainOutput.append(t("calculator.chain.no-result"));
-            else chainOutput.appendChild(renderBestChain(best, bestSingleFusion(calculated)));
-            if (others.length > 0) chainOutput.appendChild(renderOtherChains(others));
+            if (res.chains.length === 0) chainOutput.append(t("calculator.chain.no-result"));
+            else chainOutput.appendChild(renderChains(res.chains, bestSingleFusion(calculated), handIds));
             chainBtn.classList.add("hidden");
         } catch (err) {
             if (!run.isCurrent()) return;

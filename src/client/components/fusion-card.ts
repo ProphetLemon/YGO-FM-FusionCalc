@@ -8,6 +8,7 @@ import type {
 } from "../../shared/types.js";
 import { createCardImg } from "../lib/card-image.js";
 import { t } from "../lib/i18n.js";
+import { cardKind, isEquipCard, KIND_FRAME_CLASS, type CardKind } from "./card-tile.js";
 
 interface PairWithOptionalResult {
     card1: CardSummary;
@@ -15,18 +16,8 @@ interface PairWithOptionalResult {
     result?: CardSummary;
 }
 
-// How the API names the Equip card type (`cardTypes` in types-and-stars.json).
-const EQUIP_TYPE_NAME = "Equip";
-
 // A pair, an equip or a ritual: a raised Workbench plate with square corners.
 const ENTRY_CLASS = "block raise text-wb-ink p-3 mb-3 max-w-xs";
-const FINAL_CLASS =
-    "chain-final rounded-lg border-2 border-amber-500 bg-amber-50 text-wb-ink shadow-sm p-4 max-w-xs";
-const BEST_FINAL_CLASS =
-    "chain-final flex items-center gap-4 rounded-lg border-2 border-amber-500 bg-amber-50 text-wb-ink shadow-sm p-4";
-// Stands in for the number while the translated sentence is split around it.
-const ATK_MARK = "\u0000";
-
 export function renderPair(entry: FusionExpanded | EquipExpanded | ResultExpanded): HTMLElement {
     const data = entry as PairWithOptionalResult;
     const div = document.createElement("div");
@@ -94,145 +85,10 @@ export function renderRitual(entry: RitualExpanded): HTMLElement {
     return div;
 }
 
-// The steps of a chain, each a pair card under its number.
-function renderChainSteps(chain: ChainResult): HTMLElement {
-    const steps = document.createElement("ol");
-    steps.className = "flex flex-wrap gap-x-3";
-    for (const [i, step] of chain.steps.entries()) {
-        const item = document.createElement("li");
-        item.className = "chain-step";
-        const label = document.createElement("p");
-        label.className = "font-display text-sm font-bold mb-1";
-        label.textContent = t("calculator.chain.step", { n: i + 1 });
-        item.appendChild(label);
-        item.appendChild(renderPair(step));
-        steps.appendChild(item);
-    }
-    return steps;
-}
-
-// Each step is a pair card under its number; the card the last step makes closes the chain, highlighted.
-export function renderChain(chain: ChainResult): HTMLElement {
-    const div = document.createElement("div");
-    div.className = "chain-entry mb-6 p-4 border border-wb-rule rounded";
-    div.appendChild(renderChainSteps(chain));
-
-    const final = document.createElement("div");
-    final.className = FINAL_CLASS;
-    final.appendChild(
-        makeCardLine(t("card.label.result"), chain.finalCard, describeResult(chain.finalCard))
-    );
-    const summary = document.createElement("p");
-    summary.className = "font-display text-sm font-bold";
-    summary.textContent = t("calculator.chain.final-atk", { atk: String(chain.finalCard.attack) });
-    final.appendChild(summary);
-    div.appendChild(final);
-    return div;
-}
-
-// The answer the calculator leads with: what to make and how many steps it takes, the card large with its
-// final ATK as the biggest number, the gain over the best single fusion (when there is one), then the steps.
-export function renderBestChain(chain: ChainResult, bestSingle: CardSummary | null): HTMLElement {
-    const finalCard = chain.finalCard;
-    const div = document.createElement("div");
-    div.className = "chain-entry chain-best mb-6 p-4 border-2 border-wb-lo rounded-lg";
-
-    const headline = document.createElement("div");
-    headline.className = "chain-headline mb-4";
-
-    const verdict = document.createElement("p");
-    verdict.className = "chain-verdict font-display text-lg md:text-xl font-bold mb-3";
-    verdict.textContent =
-        chain.steps.length === 1
-            ? t("calculator.best.verdict-single", { card: finalCard.name })
-            : t("calculator.best.verdict-steps", { steps: chain.steps.length, card: finalCard.name });
-    headline.appendChild(verdict);
-
-    const final = document.createElement("div");
-    final.className = BEST_FINAL_CLASS;
-    final.appendChild(
-        createCardImg(finalCard.name, finalCard.imageCode, "w-28 h-40 sm:w-36 sm:h-52 flex-shrink-0")
-    );
-    const text = document.createElement("div");
-    text.className = "min-w-0";
-    const name = document.createElement("p");
-    name.className = "chain-final-name font-body text-base font-bold";
-    name.textContent = describeResult(finalCard);
-    text.appendChild(name);
-    text.appendChild(renderBigAtk(finalCard.attack));
-    final.appendChild(text);
-    headline.appendChild(final);
-
-    if (bestSingle !== null && finalCard.attack > bestSingle.attack) {
-        const gain = document.createElement("p");
-        gain.className = "chain-gain font-body text-sm font-bold text-emerald-800 mt-3";
-        gain.textContent = t("calculator.best.gain", {
-            gain: finalCard.attack - bestSingle.attack,
-            card: bestSingle.name,
-            atk: bestSingle.attack,
-        });
-        headline.appendChild(gain);
-    }
-    div.appendChild(headline);
-    div.appendChild(renderChainSteps(chain));
-    return div;
-}
-
-// The label is the translated "Final ATK: {{atk}}" sentence, with the number set apart so it can be large.
-function renderBigAtk(atk: number): HTMLElement {
-    const [before = "", after = ""] = t("calculator.chain.final-atk", { atk: ATK_MARK }).split(ATK_MARK);
-    const p = document.createElement("p");
-    p.className = "chain-final-atk font-display";
-    const label = document.createElement("span");
-    label.className = "text-sm font-bold";
-    label.textContent = before;
-    const number = document.createElement("span");
-    number.className = "block text-5xl font-bold leading-tight";
-    number.textContent = String(atk);
-    p.append(label, number);
-    if (after !== "") p.append(after);
-    return p;
-}
-
-// The chains after the best one, folded away: they are for comparing, not for reading first.
-export function renderOtherChains(chains: readonly ChainResult[]): HTMLElement {
-    const details = document.createElement("details");
-    details.className = "chain-others";
-    const summary = document.createElement("summary");
-    summary.className =
-        "cursor-pointer py-3 font-display text-sm font-bold rounded " +
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-wb-ink";
-    summary.textContent = t("calculator.chain.others", { count: chains.length });
-    details.appendChild(summary);
-    for (const chain of chains) details.appendChild(renderChain(chain));
-    return details;
-}
-
-function isEquipCard(card: CardSummary): boolean {
-    return card.typeName === EQUIP_TYPE_NAME;
-}
-
 function describeResult(card: CardSummary): string {
     return card.isMonster
         ? `${card.name} (${card.attack}/${card.defense})`
         : `${card.name} [${card.typeName}]`;
-}
-
-// The frame colour of a card tile (D7): a card a fusion made is `fusion`; otherwise a monster, an Equip or
-// any other spell-like card gets its own.
-type CardKind = "monster" | "fusion" | "equip" | "magic";
-
-// Literal strings, so Tailwind sees every class. The frame is a ring, which takes no room in the layout.
-const FRAME_CLASS: Record<CardKind, string> = {
-    monster: "bg-card-monster",
-    fusion: "bg-card-fusion",
-    equip: "bg-card-equip",
-    magic: "bg-card-magic",
-};
-
-function cardKind(card: CardSummary): CardKind {
-    if (card.isMonster) return "monster";
-    return isEquipCard(card) ? "equip" : "magic";
 }
 
 function makeCardLine(
@@ -248,7 +104,7 @@ function makeCardLine(
         createCardImg(
             card.name,
             card.imageCode,
-            `w-10 h-14 flex-shrink-0 m-0.5 ring-2 ring-wb-ink ${FRAME_CLASS[kind]}`,
+            `w-10 h-14 flex-shrink-0 m-0.5 ring-2 ring-wb-ink ${KIND_FRAME_CLASS[kind]}`,
             { compact: true }
         )
     );

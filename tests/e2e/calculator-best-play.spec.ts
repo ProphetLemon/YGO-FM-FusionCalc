@@ -60,6 +60,11 @@ test.describe("the best play for the real hand", () => {
         );
         await expect(best.locator(".chain-step")).toHaveCount(2);
         await expect(best.locator(".chain-step > p")).toHaveText(["Paso 1", "Paso 2"]);
+        // Step 2 fuses Spike Seadra, which step 1 made, so only that operand carries the caption.
+        const carried = best.locator(".chain-carried");
+        await expect(carried).toHaveText("Resultado del paso 1");
+        await expect(best.locator(".chain-step").nth(1).locator(".chain-carried")).toHaveCount(1);
+        await expect(carried.locator("xpath=preceding-sibling::*[1]")).toContainText("Spike Seadra");
         // The best single fusion is the first monster of the results column.
         await expect(page.locator("#outputarealeft > div").first()).toContainText("Sword Arm of Dragon");
     });
@@ -84,6 +89,7 @@ test.describe("the best play for the real hand", () => {
                 "150 ATK more than your best single fusion, Sword Arm of Dragon (1750)."
             );
             await expect(best.locator(".chain-step > p")).toHaveText(["Step 1", "Step 2"]);
+            await expect(best.locator(".chain-carried")).toHaveText("Result of step 1");
         } finally {
             await context.close();
         }
@@ -116,35 +122,115 @@ test.describe("the best play for the real hand", () => {
 
         const best = page.locator("#chain-output .chain-best");
         await expect(best).toBeVisible();
-        const final = await best.locator(".chain-final > div").first().boundingBox();
-        const step = await best.locator(".chain-step .w-10").first().boundingBox();
+        const final = await best.locator(".chain-final .card-tile").boundingBox();
+        const step = await best.locator(".chain-step .card-tile").first().boundingBox();
         expect(final).not.toBeNull();
         expect(step).not.toBeNull();
-        expect(final!.height).toBeGreaterThan(step!.height * 2);
+        expect(final!.width).toBeGreaterThan(step!.width * 1.5);
+        expect(final!.height).toBeGreaterThan(step!.height * 1.5);
     });
 
-    test("keeps the other chains folded away in a details element, with a reachable summary", async ({
-        page,
-    }) => {
+    test("keeps the big final ATK inside its box on a phone", async ({ page }) => {
+        await page.setViewportSize({ width: 375, height: 800 });
+        await openCalculator(page);
+        await fillProblemHand(page);
+
+        const best = page.locator("#chain-output .chain-best");
+        await expect(best).toBeVisible();
+        const number = best.locator(".chain-final-atk span").last();
+        await expect(number).toHaveText("1900");
+        const numberBox = await number.boundingBox();
+        const finalBox = await best.locator(".chain-final").boundingBox();
+        const bodyBox = await best.locator(".chain-final").locator("xpath=..").boundingBox();
+        expect(numberBox).not.toBeNull();
+        expect(finalBox).not.toBeNull();
+        expect(numberBox!.x).toBeGreaterThanOrEqual(finalBox!.x);
+        expect(numberBox!.x + numberBox!.width).toBeLessThanOrEqual(finalBox!.x + finalBox!.width + 0.5);
+        expect(finalBox!.x + finalBox!.width).toBeLessThanOrEqual(bodyBox!.x + bodyBox!.width + 0.5);
+        const scrolls = await page.evaluate(
+            () => document.documentElement.scrollWidth > document.documentElement.clientWidth
+        );
+        expect(scrolls).toBe(false);
+        // Below 700px the final column goes under the steps.
+        const steps = await best.locator("ol").boundingBox();
+        expect(finalBox!.y).toBeGreaterThanOrEqual(steps!.y + steps!.height);
+    });
+
+    test("offers every chain in a tab, the best selected first", async ({ page }) => {
         await openCalculator(page);
         await fillProblemHand(page);
         await expect(page.locator("#chain-output .chain-best")).toBeVisible();
 
-        const others = page.locator("#chain-output details.chain-others");
-        await expect(others).toHaveCount(1);
-        await expect(others).not.toHaveAttribute("open", "");
-        const summary = others.locator("summary");
-        await expect(summary).toHaveText(/^Otras cadenas \(\d+\)$/);
-        const box = await summary.boundingBox();
-        expect(box!.height).toBeGreaterThanOrEqual(44);
+        const tabs = page.getByRole("tab");
+        await expect(tabs).toHaveCount(4);
+        await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+        await expect(tabs.first()).toContainText("Cadena 1");
+        await expect(tabs.first()).toContainText("Kaminari Attack, 1900 ATK");
+        await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "false");
+        for (const tab of await tabs.all()) {
+            expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        }
+        const entries = page.locator("#chain-output .chain-entry");
+        await expect(entries).toHaveCount(4);
+        await expect(entries.first()).toBeVisible();
+        await expect(entries.nth(1)).toBeHidden();
+        // The gain belongs to the best chain only.
+        await expect(page.locator("#chain-output .chain-gain")).toHaveCount(1);
+    });
 
-        const count = Number(/\((\d+)\)/.exec((await summary.textContent()) ?? "")?.[1]);
-        await expect(others.locator(".chain-entry")).toHaveCount(count);
-        await expect(others.locator(".chain-entry").first()).toBeHidden();
-        await summary.focus();
-        await page.keyboard.press("Enter");
-        await expect(others.locator(".chain-entry").first()).toBeVisible();
-        await expect(others.locator(".chain-entry .chain-final").first()).toBeVisible();
+    test("shows another chain when its tab is clicked and hides the best one", async ({ page }) => {
+        await openCalculator(page);
+        await fillProblemHand(page);
+        const entries = page.locator("#chain-output .chain-entry");
+        await expect(entries.first()).toBeVisible();
+
+        const tabs = page.getByRole("tab");
+        await tabs.nth(1).click();
+        await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+        await expect(tabs.first()).toHaveAttribute("aria-selected", "false");
+        await expect(entries.nth(1)).toBeVisible();
+        await expect(entries.first()).toBeHidden();
+        await expect(entries.nth(1).locator(".chain-final")).toBeVisible();
+        await expect(entries.nth(1).locator(".chain-gain")).toHaveCount(0);
+        await expect(entries.nth(1).locator(".chain-verdict")).toContainText("Fusiona");
+    });
+
+    test("selects chains with the arrow keys", async ({ page }) => {
+        await openCalculator(page);
+        await fillProblemHand(page);
+        const entries = page.locator("#chain-output .chain-entry");
+        await expect(entries.first()).toBeVisible();
+
+        const tabs = page.getByRole("tab");
+        await tabs.first().focus();
+        await page.keyboard.press("ArrowRight");
+        await expect(tabs.nth(1)).toBeFocused();
+        await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+        await expect(entries.nth(1)).toBeVisible();
+        await expect(entries.first()).toBeHidden();
+
+        await page.keyboard.press("End");
+        await expect(tabs.nth(3)).toBeFocused();
+        await expect(entries.nth(3)).toBeVisible();
+        await page.keyboard.press("ArrowRight");
+        await expect(tabs.first()).toBeFocused();
+        await expect(entries.first()).toBeVisible();
+        // Only the selected tab is in the tab order.
+        await expect(tabs.nth(1)).toHaveAttribute("tabindex", "-1");
+    });
+
+    test("puts the tabs in two columns and the chain in one column on a phone", async ({ page }) => {
+        await page.setViewportSize({ width: 375, height: 800 });
+        await openCalculator(page);
+        await fillProblemHand(page);
+        await expect(page.locator("#chain-output .chain-best")).toBeVisible();
+
+        const tabs = page.getByRole("tab");
+        const first = (await tabs.nth(0).boundingBox())!;
+        const second = (await tabs.nth(1).boundingBox())!;
+        const third = (await tabs.nth(2).boundingBox())!;
+        expect(second.y).toBeCloseTo(first.y, 0);
+        expect(third.y).toBeGreaterThan(first.y);
     });
 
     test("shows the results split as before next to the best play", async ({ page }) => {

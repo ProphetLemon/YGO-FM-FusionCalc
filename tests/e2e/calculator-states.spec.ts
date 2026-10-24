@@ -514,18 +514,30 @@ test.describe("the chain", () => {
         return page.locator("#chain-output .chain-entry");
     }
 
-    test("shows each step as a card with artwork and ends in a highlighted result", async ({ page }) => {
+    test("shows each step as card + card = card tiles with artwork and ends in the final card", async ({
+        page,
+    }) => {
         const chains = await calculateChain(page, CHAIN_HAND);
 
         await expect(chains).toHaveCount(1);
         const steps = chains.locator(".chain-step");
         await expect(steps).toHaveCount(1);
-        await expect(steps.first().locator("p")).toHaveText([
-            "Paso 1",
-            "Carta: Tyhone",
-            `Carta: ${MONSTER}`,
-            "Resultado: Crimson Sunbird (2300/1800)",
+        await expect(steps.first().locator("> p")).toHaveText("Paso 1");
+        // Two cards of the hand, the operators as text, and the result.
+        await expect(steps.first().locator(".card-tile-name")).toHaveText([
+            "Tyhone",
+            MONSTER,
+            "Crimson Sunbird",
         ]);
+        await expect(steps.first().locator(".card-tile-stat")).toHaveText([
+            "1200 / 1400",
+            "1800 / 1600",
+            "2300 / 1800",
+        ]);
+        await expect(steps.first()).toContainText("+");
+        await expect(steps.first()).toContainText("=");
+        // No operand comes from an earlier step in a chain of one.
+        await expect(steps.first().locator(".chain-carried")).toHaveCount(0);
         const stepImages = steps.first().locator("img");
         await expect(stepImages).toHaveCount(3);
         for (const [index, password] of [
@@ -537,16 +549,18 @@ test.describe("the chain", () => {
         }
         const final = chains.locator(".chain-final");
         await expect(final).toHaveCount(1);
-        await expect(final.locator("p")).toHaveText(["Crimson Sunbird (2300/1800)", "ATK final: 2300"]);
+        await expect(final.locator(".card-tile-name")).toHaveText("Crimson Sunbird");
+        await expect(final.locator(".card-tile-stat")).toHaveText("2300 / 1800");
+        await expect(final.locator("p")).toHaveText("ATK final: 2300");
         await expect(final.locator("img")).toHaveCount(1);
         await expect(final.locator("img")).toHaveAttribute(
             "src",
             new RegExp(`/${PASSWORD.crimsonSunbird}\\.jpg$`)
         );
-        // The result opens the best play, before the steps that lead to it.
-        await expect(chains.locator(":scope > *").first()).toHaveClass(/chain-headline/);
+        // Steps and final card share one sunken body, the sentence of the play comes under it.
         await expect(chains.locator(":scope > *").first().locator(".chain-final")).toHaveCount(1);
-        await expect(chains.locator(":scope > ol")).toHaveCount(1);
+        await expect(chains.locator(":scope > *").first().locator("ol")).toHaveCount(1);
+        await expect(chains.locator(":scope > *").last()).toHaveClass(/chain-verdict/);
     });
 
     test("does not end in a card the hand merely holds", async ({ page }) => {
@@ -560,12 +574,14 @@ test.describe("the chain", () => {
     test("sets the final result apart from the steps", async ({ page }) => {
         const chains = await calculateChain(page, CHAIN_HAND);
 
-        const final = chains.locator(".chain-final");
+        const final = chains.locator(".chain-final .card-tile");
         await expect(final).toBeVisible();
-        await expect(final).toHaveCSS("border-top-width", "2px");
+        await expect(final).toHaveCSS("border-top-width", "3px");
+        await expect(final).toHaveAttribute("data-kind", "fusion");
+        // A fusion frame, not the monster frame of the cards of the hand.
         const highlighted = await backgroundOf(final);
         expect(highlighted).not.toBe("rgba(0, 0, 0, 0)");
-        expect(highlighted).not.toBe(await backgroundOf(chains.locator(".chain-step > div").first()));
+        expect(highlighted).not.toBe(await backgroundOf(chains.locator(".chain-step .card-tile").first()));
     });
 
     test("numbers every step of a chain that needs several", async ({ page }) => {
@@ -580,7 +596,8 @@ test.describe("the chain", () => {
         const best = chains.first();
         await expect(best.locator(".chain-step")).toHaveCount(3);
         await expect(best.locator(".chain-step > p")).toHaveText(["Paso 1", "Paso 2", "Paso 3"]);
-        await expect(best.locator(".chain-final p").first()).toHaveText("Vermillion Sparrow (1900/1500)");
+        await expect(best.locator(".chain-final .card-tile-name")).toHaveText("Vermillion Sparrow");
+        await expect(best.locator(".chain-final .card-tile-stat")).toHaveText("1900 / 1500");
         await expect(best.locator(".chain-verdict")).toHaveText(
             "Fusiona en 3 pasos para obtener Vermillion Sparrow."
         );
@@ -746,7 +763,7 @@ test.describe("the best play", () => {
         await expect(best.locator(".chain-gain")).toHaveCount(0);
     });
 
-    test("folds the other chains into one details element after the best play", async ({ page }) => {
+    test("offers the chains in tabs, the best one selected and shown", async ({ page }) => {
         await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [
             chainTo(monster(702, "First Card", 1900), 2),
             chainTo(monster(703, "Second Card", 1800)),
@@ -755,41 +772,88 @@ test.describe("the best play", () => {
 
         const output = page.locator("#chain-output");
         await expect(output.locator(".chain-entry")).toHaveCount(3);
-        await expect(output.locator(":scope > .chain-best")).toHaveCount(1);
-        const others = output.locator(":scope > details.chain-others");
-        await expect(others).toHaveCount(1);
-        await expect(others.locator("summary")).toHaveText("Otras cadenas (2)");
-        await expect(others).not.toHaveAttribute("open", "");
-        await expect(others.locator(".chain-entry")).toHaveCount(2);
-        await expect(others.locator(".chain-entry.chain-best")).toHaveCount(0);
-        await expect(others.locator(".chain-entry").first().locator(".chain-final p").first()).toContainText(
-            "Second Card"
-        );
-        // After the best play, in the DOM order.
-        await expect(output.locator(":scope > *").last()).toHaveClass(/chain-others/);
+        await expect(output.locator(".chain-entry.chain-best")).toHaveCount(1);
+        await expect(output.locator("details")).toHaveCount(0);
+        const tabs = output.getByRole("tab");
+        await expect(tabs).toHaveCount(3);
+        await expect(tabs.nth(0)).toHaveText("Cadena 1First Card, 1900 ATK");
+        await expect(tabs.nth(1)).toHaveText("Cadena 2Second Card, 1800 ATK");
+        await expect(tabs.nth(2)).toHaveText("Cadena 3Third Card, 1700 ATK");
+        await expect(output.getByRole("tablist")).toHaveAccessibleName("Cadenas, la mejor primero");
+        await expect(tabs.nth(0)).toHaveAttribute("aria-selected", "true");
+        await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "false");
+        // The tab strip comes before the chains and the best one is the one shown.
+        await expect(output.locator(".chain-panel > *").first()).toHaveAttribute("role", "tablist");
+        await expect(output.locator(".chain-entry").nth(0)).toBeVisible();
+        await expect(output.locator(".chain-entry").nth(1)).toBeHidden();
+        await expect(output.locator(".chain-entry").nth(2)).toBeHidden();
+        await expect(tabs.nth(0)).toHaveAttribute("aria-controls", /.+/);
+        const panelId = await tabs.nth(1).getAttribute("aria-controls");
+        await expect(output.locator(`[id="${panelId}"]`)).toHaveClass(/chain-entry/);
     });
 
-    test("has no details element when there is only one chain", async ({ page }) => {
+    test("shows the chain of the tab clicked, with its own card and without the gain", async ({ page }) => {
+        const best = await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [
+            chainTo(monster(702, "First Card", 1900), 2),
+            chainTo(monster(703, "Second Card", 1800)),
+        ]);
+        await expect(best.locator(".chain-gain")).toHaveCount(1);
+
+        await page.getByRole("tab").nth(1).click();
+
+        const second = page.locator("#chain-output .chain-entry").nth(1);
+        await expect(second).toBeVisible();
+        await expect(best).toBeHidden();
+        await expect(second.locator(".card-tile-name").last()).toHaveText("Second Card");
+        await expect(second.locator(".chain-final-atk")).toHaveText("ATK final: 1800");
+        await expect(second.locator(".chain-verdict")).toHaveText(
+            "Fusiona una vez para obtener Second Card."
+        );
+        await expect(second.locator(".chain-gain")).toHaveCount(0);
+    });
+
+    test("captions an operand that an earlier step made, and no other", async ({ page }) => {
+        const best = await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [
+            chainTo(monster(702, "Two Step Card", 1900), 2),
+        ]);
+
+        // chainTo fuses the result of step 1 in step 2.
+        await expect(best.locator(".chain-step")).toHaveCount(2);
+        await expect(best.locator(".chain-step").nth(0).locator(".chain-carried")).toHaveCount(0);
+        await expect(best.locator(".chain-step").nth(1).locator(".chain-carried")).toHaveText(
+            "Resultado del paso 1"
+        );
+        await expect(best.locator(".chain-carried")).toHaveCount(1);
+    });
+
+    test("has no tabs when there is only one chain", async ({ page }) => {
         await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [chainTo(monster(702, "Only Card", 1900))]);
 
         await expect(page.locator("#chain-output details")).toHaveCount(0);
+        await expect(page.locator("#chain-output").getByRole("tab")).toHaveCount(0);
+        await expect(page.locator("#chain-output .chain-entry")).toBeVisible();
     });
 
-    test("opens the other chains with the keyboard", async ({ page }) => {
+    test("moves between the tabs with the keyboard", async ({ page }) => {
         await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [
             chainTo(monster(702, "First Card", 1900)),
             chainTo(monster(703, "Second Card", 1800)),
         ]);
-        const summaryOfOthers = page.locator("#chain-output details.chain-others summary");
+        const tabs = page.getByRole("tab");
 
-        await summaryOfOthers.focus();
-        await expect(summaryOfOthers).toBeFocused();
-        await page.keyboard.press("Enter");
+        await tabs.first().focus();
+        await expect(tabs.first()).toBeFocused();
+        await page.keyboard.press("ArrowRight");
 
-        await expect(page.locator("#chain-output details.chain-others")).toHaveAttribute("open", "");
-        await expect(page.locator("#chain-output details .chain-entry")).toBeVisible();
-        const box = await summaryOfOthers.boundingBox();
-        expect(box!.height).toBeGreaterThanOrEqual(44);
+        await expect(tabs.nth(1)).toBeFocused();
+        await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
+        await expect(page.locator("#chain-output .chain-entry").nth(1)).toBeVisible();
+        await page.keyboard.press("ArrowLeft");
+        await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
+        await expect(page.locator("#chain-output .chain-entry.chain-best")).toBeVisible();
+        for (const tab of await tabs.all()) {
+            expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        }
     });
 
     test("is hidden together with the chain section below two cards, and shown from two", async ({
