@@ -152,6 +152,23 @@ test.describe("on the calculator", () => {
     });
 
     test.describe("the suggestions", () => {
+        test("open below the slot input, not over it", async ({ page }) => {
+            const input = slotInput(page, 0);
+            await input.pressSequentially("blue eyes");
+            const list = page.getByRole("listbox");
+            await expect(list).toBeVisible();
+            const inputBox = await input.boundingBox();
+            const listBox = await list.boundingBox();
+            expect(listBox!.y).toBeGreaterThanOrEqual(inputBox!.y + inputBox!.height);
+            // Above the slots that follow: the element found at the top of the list belongs to it.
+            const onTop = await list.evaluate((el) => {
+                const r = el.getBoundingClientRect();
+                const hit = document.elementFromPoint(r.x + r.width / 2, r.y + 4);
+                return hit !== null && el.contains(hit);
+            });
+            expect(onTop).toBe(true);
+        });
+
         test("match the words of a name, not only its start", async ({ page }) => {
             await slotInput(page, 0).fill("blue eyes");
 

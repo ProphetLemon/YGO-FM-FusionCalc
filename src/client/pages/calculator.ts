@@ -22,8 +22,11 @@ interface SlotState {
     input: HTMLInputElement;
     emptyState: HTMLElement;
     filledState: HTMLElement;
+    // The card tile of a filled slot: its frame colour follows the kind of the card.
+    tile: HTMLElement;
     imgWrapper: HTMLElement;
     nameLabel: HTMLElement;
+    statLabel: HTMLElement;
     message: HTMLElement;
     clearBtn: HTMLButtonElement;
     removeBtn: HTMLButtonElement;
@@ -37,11 +40,32 @@ interface SlotState {
 
 type SlotProblem = "invalid" | "lookup-failed";
 
-const ALERT_CLASS = "rounded p-3 mb-4 bg-red-100 text-red-800 border border-red-300 font-body text-sm";
-const SLOT_ALERT_CLASS = "mt-1 text-xs text-rose-700 font-body text-center leading-tight";
-const STATUS_CLASS = "text-center font-body text-sm text-fm-primary/80 my-4";
-const NONE_CLASS = "text-center font-body text-sm text-fm-primary/80 mb-3";
-const NOTE_CLASS = "rounded p-3 mb-4 bg-amber-50 text-amber-900 border border-amber-300 font-body text-sm";
+const ALERT_CLASS = "p-3 mb-4 bg-wb-well text-wb-red border-2 border-wb-red font-body font-bold text-sm";
+const SLOT_ALERT_CLASS = "mt-1 text-xs text-wb-red font-bold font-body text-center leading-tight";
+const STATUS_CLASS = "text-center font-body text-sm text-wb-mute my-4";
+const NONE_CLASS = "text-center font-body text-sm text-wb-mute mb-3";
+const NOTE_CLASS = "sink p-3 mb-4 text-wb-ink font-body text-sm";
+
+// The frame colour of a hand tile (D7): a hand card is never a fusion result. Literal strings, so Tailwind
+// sees every class.
+const TILE_CLASS =
+    "slot-tile relative flex flex-col aspect-[2/3] p-1 border-2 border-wb-ink text-wb-ink " +
+    "shadow-[inset_1px_1px_0_#fff,inset_-1px_-1px_0_rgb(0_0_0/0.25)]";
+const TILE_FRAME_CLASS = {
+    monster: "bg-card-monster",
+    equip: "bg-card-equip",
+    magic: "bg-card-magic",
+} as const;
+
+function tileFrame(card: CardSummary): string {
+    if (card.isMonster) return TILE_FRAME_CLASS.monster;
+    return card.typeName === "Equip" ? TILE_FRAME_CLASS.equip : TILE_FRAME_CLASS.magic;
+}
+
+// What the stat strip of a tile says: the stats of a monster, the type of anything else.
+function tileStat(card: CardSummary): string {
+    return card.isMonster ? `${card.attack} / ${card.defense}` : card.typeName;
+}
 
 document.addEventListener("DOMContentLoaded", () => {
     mountNavbar();
@@ -60,6 +84,7 @@ function mountCalculatorPage(): void {
     const resultsStatus = qs<HTMLElement>("#results-status");
     const addSlotHint = qs<HTMLElement>("#add-slot-hint");
     const handCount = qs<HTMLElement>("#hand-count");
+    const pips = document.querySelectorAll<HTMLElement>("#hand-meter .pip");
     const answerColumn = qs<HTMLElement>("#answer-column");
     const indexError = qs<HTMLElement>("#index-error");
     const indexRetryBtn = qs<HTMLButtonElement>("#indexRetryBtn");
@@ -262,6 +287,10 @@ function mountCalculatorPage(): void {
         const addable = canAddSlot(slots.length);
         addBtn.disabled = !addable;
         handCount.textContent = t("calculator.hand.count", { count: slots.length, max: MAX_HAND_SIZE });
+        // Decorative: the count above is the accessible value. One pip per slot in use.
+        pips.forEach((pip, i) => {
+            pip.dataset.on = String(i < slots.length);
+        });
         addSlotHint.textContent = addable ? "" : t("calculator.hand.max-reached", { max: MAX_HAND_SIZE });
     };
 
@@ -271,15 +300,18 @@ function mountCalculatorPage(): void {
         if (card) {
             slot.imgWrapper.innerHTML = "";
             slot.imgWrapper.appendChild(
-                createCardImg(card.name, card.imageCode, "w-full h-full object-contain")
+                createCardImg(card.name, card.imageCode, "w-full h-full")
             );
             slot.nameLabel.textContent = card.name;
+            slot.statLabel.textContent = tileStat(card);
+            slot.tile.className = `${TILE_CLASS} ${tileFrame(card)}`;
             slot.input.value = card.name;
             slot.emptyState.classList.add("hidden");
             slot.filledState.classList.remove("hidden");
         } else {
             slot.imgWrapper.innerHTML = "";
             slot.nameLabel.textContent = "";
+            slot.statLabel.textContent = "";
             slot.input.value = "";
             slot.filledState.classList.add("hidden");
             slot.emptyState.classList.remove("hidden");
@@ -334,58 +366,76 @@ function mountCalculatorPage(): void {
         const n = slots.length + 1;
 
         const cell = document.createElement("div");
-        cell.className = "hand-slot flex flex-col items-center";
+        cell.className = "hand-slot relative";
 
-        // Empty state
+        // Empty state: a sunken tile holding the label and the input.
         const emptyState = document.createElement("div");
         emptyState.className =
-            "slot-empty w-full aspect-[2/3] border-2 border-dashed border-fm-primary/40 " +
-            "rounded flex flex-col items-center justify-center gap-1 p-2 cursor-text";
-
-        const plusIcon = document.createElement("span");
-        plusIcon.className = "text-2xl text-fm-primary/40 select-none";
-        plusIcon.textContent = "+";
+            "slot-empty w-full aspect-[2/3] bg-wb-empty border-2 border-wb-lo border-b-wb-hi border-r-wb-hi " +
+            "flex flex-col items-center justify-center gap-1 p-1.5 cursor-text";
 
         const emptyLabel = document.createElement("span");
-        emptyLabel.className = "text-xs text-fm-primary/40 font-body text-center";
+        emptyLabel.className = "text-[13px] font-bold text-wb-mute font-body text-center leading-tight";
         emptyLabel.textContent = t("calculator.slot.empty");
+
+        // The suggestion list is absolute with no top: its parent must be a block, not the flex column
+        // above, or the list opens over the input instead of below it.
+        const inputBox = document.createElement("div");
+        inputBox.className = "w-full";
 
         const input = document.createElement("input");
         input.type = "text";
-        input.className =
-            "w-full text-xs px-2 py-1 border border-fm-primary/30 rounded font-body bg-white/80 mt-1";
+        input.className = "wb-input w-full min-w-0 px-1.5! text-xs font-body";
         input.setAttribute("aria-label", t("calculator.slot.label", { n }));
 
-        emptyState.appendChild(plusIcon);
+        inputBox.appendChild(input);
         emptyState.appendChild(emptyLabel);
-        emptyState.appendChild(input);
+        emptyState.appendChild(inputBox);
 
-        // Filled state
+        // Filled state: the card tile (name strip, art well, stat strip) and the remove "x".
         const filledState = document.createElement("div");
-        filledState.className = "slot-filled hidden w-full";
+        filledState.className = "slot-filled hidden relative w-full";
 
-        const imgAspect = document.createElement("div");
-        imgAspect.className = "w-full aspect-[2/3] relative rounded overflow-hidden";
-
-        const imgWrapper = document.createElement("div");
-        imgWrapper.className = "w-full h-full";
-
-        const clearBtn = document.createElement("button");
-        clearBtn.type = "button";
-        clearBtn.className =
-            "clear-btn absolute top-1 right-1 z-10 w-5 h-5 bg-rose-600 text-white " +
-            "rounded-full text-xs flex items-center justify-center hover:bg-rose-500 leading-none";
-        clearBtn.textContent = "×";
-        clearBtn.setAttribute("aria-label", `${t("calculator.btn.remove-slot")} ${n}`);
-
-        imgAspect.appendChild(imgWrapper);
-        imgAspect.appendChild(clearBtn);
-        filledState.appendChild(imgAspect);
+        const tile = document.createElement("div");
+        tile.className = `${TILE_CLASS} ${TILE_FRAME_CLASS.monster}`;
 
         const nameLabel = document.createElement("p");
         nameLabel.className =
-            "slot-name text-xs text-center font-body mt-1 leading-tight line-clamp-2";
-        filledState.appendChild(nameLabel);
+            "slot-name m-0 min-h-8 px-1 py-0.5 bg-white/70 font-body font-bold text-xs leading-tight " +
+            "flex items-center [overflow-wrap:anywhere] line-clamp-2";
+
+        const art = document.createElement("div");
+        art.className = "wb-art relative flex-1 min-h-0 my-[3px] overflow-hidden";
+
+        const imgWrapper = document.createElement("div");
+        imgWrapper.className = "absolute inset-0";
+        art.appendChild(imgWrapper);
+
+        const statLabel = document.createElement("p");
+        statLabel.className =
+            "slot-stat m-0 px-1 py-px bg-white/70 font-body font-bold text-xs text-center whitespace-nowrap overflow-hidden";
+
+        tile.appendChild(nameLabel);
+        tile.appendChild(art);
+        tile.appendChild(statLabel);
+
+        // A 44px hit area around a 24px ink square, red on hover.
+        const clearBtn = document.createElement("button");
+        clearBtn.type = "button";
+        clearBtn.className =
+            "clear-btn group absolute -top-2.5 -right-2.5 z-10 w-11 h-11 grid place-items-center " +
+            "bg-transparent border-0 p-0 cursor-pointer";
+        clearBtn.setAttribute("aria-label", `${t("calculator.btn.remove-slot")} ${n}`);
+        const clearMark = document.createElement("span");
+        clearMark.className =
+            "w-6 h-6 grid place-items-center bg-wb-ink text-white border-2 border-wb-plate " +
+            "leading-none font-bold group-hover:bg-wb-red";
+        clearMark.setAttribute("aria-hidden", "true");
+        clearMark.textContent = "×";
+        clearBtn.appendChild(clearMark);
+
+        filledState.appendChild(tile);
+        filledState.appendChild(clearBtn);
 
         // Alert for a name that is invalid or could not be looked up (below both states)
         const message = document.createElement("div");
@@ -396,7 +446,8 @@ function mountCalculatorPage(): void {
         const removeBtn = document.createElement("button");
         removeBtn.type = "button";
         removeBtn.className =
-            "remove-btn hidden mt-1 text-xs text-rose-600 hover:text-rose-500 font-body underline";
+            "remove-btn hidden mt-1 w-full min-h-[44px] px-1 text-xs font-bold text-wb-red " +
+            "hover:bg-wb-plate-hover underline font-body cursor-pointer";
         removeBtn.textContent = `− ${t("calculator.btn.remove-slot")}`;
         removeBtn.setAttribute("aria-label", `${t("calculator.btn.remove-slot")} ${n}`);
 
@@ -411,8 +462,10 @@ function mountCalculatorPage(): void {
             input,
             emptyState,
             filledState,
+            tile,
             imgWrapper,
             nameLabel,
+            statLabel,
             message,
             clearBtn,
             removeBtn,

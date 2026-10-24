@@ -32,9 +32,6 @@
     --color-card-fusion: #8fd6a5;
     --color-card-equip: #f0a29b;
     --color-card-magic: #efa8cb;
-
-    /* Legacy token, still used by the calculator until T3 restyles it. */
-    --color-fm-primary: rgb(30 35 55);
 }
 
 /* Focus: one visible style on every control; white inside coloured header bars. */

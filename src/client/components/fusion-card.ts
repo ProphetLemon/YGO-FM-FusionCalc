@@ -21,9 +21,9 @@ const EQUIP_TYPE_NAME = "Equip";
 // A pair, an equip or a ritual: a raised Workbench plate with square corners.
 const ENTRY_CLASS = "block raise text-wb-ink p-3 mb-3 max-w-xs";
 const FINAL_CLASS =
-    "chain-final rounded-lg border-2 border-amber-500 bg-amber-50 text-fm-primary shadow-sm p-4 max-w-xs";
+    "chain-final rounded-lg border-2 border-amber-500 bg-amber-50 text-wb-ink shadow-sm p-4 max-w-xs";
 const BEST_FINAL_CLASS =
-    "chain-final flex items-center gap-4 rounded-lg border-2 border-amber-500 bg-amber-50 text-fm-primary shadow-sm p-4";
+    "chain-final flex items-center gap-4 rounded-lg border-2 border-amber-500 bg-amber-50 text-wb-ink shadow-sm p-4";
 // Stands in for the number while the translated sentence is split around it.
 const ATK_MARK = "\u0000";
 
@@ -49,7 +49,7 @@ export function renderFusion(entry: FusionExpanded): HTMLElement {
     div.className = `fusion-entry ${ENTRY_CLASS}`;
 
     const result = document.createElement("div");
-    result.className = "fusion-result flex items-center gap-3 mb-3 pb-3 border-b border-fm-primary/20";
+    result.className = "fusion-result flex items-center gap-3 mb-3 pb-3 border-b border-wb-rule";
     result.appendChild(
         createCardImg(entry.result.name, entry.result.imageCode, "w-16 h-24 flex-shrink-0", {
             compact: true,
@@ -114,7 +114,7 @@ function renderChainSteps(chain: ChainResult): HTMLElement {
 // Each step is a pair card under its number; the card the last step makes closes the chain, highlighted.
 export function renderChain(chain: ChainResult): HTMLElement {
     const div = document.createElement("div");
-    div.className = "chain-entry mb-6 p-4 border border-fm-primary/20 rounded";
+    div.className = "chain-entry mb-6 p-4 border border-wb-rule rounded";
     div.appendChild(renderChainSteps(chain));
 
     const final = document.createElement("div");
@@ -135,7 +135,7 @@ export function renderChain(chain: ChainResult): HTMLElement {
 export function renderBestChain(chain: ChainResult, bestSingle: CardSummary | null): HTMLElement {
     const finalCard = chain.finalCard;
     const div = document.createElement("div");
-    div.className = "chain-entry chain-best mb-6 p-4 border-2 border-fm-primary/30 rounded-lg";
+    div.className = "chain-entry chain-best mb-6 p-4 border-2 border-wb-lo rounded-lg";
 
     const headline = document.createElement("div");
     headline.className = "chain-headline mb-4";
@@ -201,7 +201,7 @@ export function renderOtherChains(chains: readonly ChainResult[]): HTMLElement {
     const summary = document.createElement("summary");
     summary.className =
         "cursor-pointer py-3 font-display text-sm font-bold rounded " +
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fm-primary";
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-wb-ink";
     summary.textContent = t("calculator.chain.others", { count: chains.length });
     details.appendChild(summary);
     for (const chain of chains) details.appendChild(renderChain(chain));

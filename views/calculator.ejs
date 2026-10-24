@@ -1,78 +1,95 @@
-<div class="container mx-auto px-4 py-6">
-    <div class="grid grid-cols-1 gap-6 items-start lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <section id="hand-section" class="bg-white/95 text-fm-primary rounded-lg p-6 shadow-lg">
-            <div class="flex flex-wrap items-baseline justify-between gap-x-4 my-4">
-                <h3 class="font-display text-2xl md:text-3xl"><%= t('calculator.hand.title') %></h3>
-                <span id="hand-count" class="font-body text-sm"></span>
+<div class="max-w-[1380px] mx-auto px-6 pt-5 pb-10">
+    <div class="flex flex-wrap items-baseline gap-x-5 gap-y-1 mb-4">
+        <h1 class="m-0 text-[26px] min-[701px]:text-[32px] leading-[1.1]"><%= t('calculator.title') %></h1>
+        <p class="m-0 max-w-[60ch] text-wb-subtle"><%= t('calculator.subtitle') %></p>
+    </div>
+
+    <div class="grid grid-cols-1 gap-5 items-start min-[1101px]:grid-cols-[440px_minmax(0,1fr)]">
+        <section
+            id="hand-section"
+            aria-labelledby="hand-title"
+            class="win min-[1101px]:[@media(min-height:860px)]:sticky min-[1101px]:[@media(min-height:860px)]:top-4"
+        >
+            <div class="win-bar win-bar-grey">
+                <h2 id="hand-title" class="win-title"><%= t('calculator.hand.title') %></h2>
+                <span id="hand-count" aria-live="polite" class="font-display text-lg text-white"></span>
             </div>
-            <div
-                id="index-error"
-                role="alert"
-                class="hidden mb-4 rounded p-3 bg-red-100 text-red-800 border border-red-300 font-body text-sm"
-            >
-                <span><%= t('calculator.index.error') %></span>
-                <button
-                    type="button"
-                    id="indexRetryBtn"
-                    class="ml-3 px-3 py-1 bg-fm-primary text-white rounded hover:bg-fm-primary/80 font-display text-sm disabled:opacity-50"
+            <div class="win-body">
+                <div
+                    id="hand-meter"
+                    aria-hidden="true"
+                    class="sink grid grid-cols-12 gap-1 p-1 mb-4"
                 >
-                    <%= t('calculator.btn.retry') %>
-                </button>
-            </div>
-            <div id="hand-slots" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-3 xl:grid-cols-4 gap-3"></div>
-            <div class="flex flex-wrap items-center gap-3 mt-6">
-                <button
-                    type="button"
-                    id="addSlotBtn"
-                    aria-describedby="add-slot-hint"
-                    class="px-4 py-2 bg-fm-primary text-white rounded hover:bg-fm-primary/80 font-display text-sm disabled:opacity-50"
+                    <% for (let i = 0; i < 12; i++) { %>
+                    <span
+                        class="pip h-3 border border-wb-vent bg-wb-disabled data-[on=true]:bg-wb-ink data-[on=true]:border-wb-ink"
+                        data-on="false"
+                    ></span>
+                    <% } %>
+                </div>
+                <div
+                    id="index-error"
+                    role="alert"
+                    class="hidden mb-4 p-3 bg-wb-well border-2 border-wb-red text-wb-red font-bold"
                 >
-                    <%= t('calculator.btn.add-slot') %>
-                </button>
-                <button
-                    type="button"
-                    id="resetBtn"
-                    class="px-4 py-2 bg-rose-600 text-white rounded hover:bg-rose-500 font-display text-sm"
-                >
-                    <%= t('calculator.btn.reset') %>
-                </button>
-                <p id="add-slot-hint" role="status" class="font-body text-sm"></p>
+                    <span><%= t('calculator.index.error') %></span>
+                    <button type="button" id="indexRetryBtn" class="wb-btn ml-3 text-wb-ink">
+                        <%= t('calculator.btn.retry') %>
+                    </button>
+                </div>
+                <div
+                    id="hand-slots"
+                    class="grid grid-cols-2 min-[480px]:grid-cols-3 min-[701px]:grid-cols-6 min-[1101px]:grid-cols-4 gap-x-2.5 gap-y-4 mb-4"
+                ></div>
+                <ul aria-label="<%= t('calculator.legend.label') %>" class="flex flex-wrap gap-x-3.5 gap-y-1.5 m-0 mb-4 p-0 list-none text-sm text-wb-mute">
+                    <li class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 border-2 border-wb-ink bg-card-monster"></span><%= t('calculator.legend.monster') %></li>
+                    <li class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 border-2 border-wb-ink bg-card-fusion"></span><%= t('calculator.legend.fusion') %></li>
+                    <li class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 border-2 border-wb-ink bg-card-equip"></span><%= t('calculator.legend.equip') %></li>
+                    <li class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 border-2 border-wb-ink bg-card-magic"></span><%= t('calculator.legend.magic') %></li>
+                </ul>
+                <div class="flex flex-wrap items-center gap-3">
+                    <button type="button" id="addSlotBtn" aria-describedby="add-slot-hint" class="wb-btn">
+                        <%= t('calculator.btn.add-slot') %>
+                    </button>
+                    <button type="button" id="resetBtn" class="wb-btn text-wb-red">
+                        <%= t('calculator.btn.reset') %>
+                    </button>
+                    <p id="add-slot-hint" role="status" class="m-0 text-sm text-wb-mute"></p>
+                </div>
             </div>
         </section>
 
         <div
             id="answer-column"
             data-has-answer="false"
-            class="flex flex-col gap-6 min-w-0 data-[has-answer=true]:order-first lg:data-[has-answer=true]:order-none"
+            class="flex flex-col gap-5 min-w-0 data-[has-answer=true]:order-first min-[1101px]:data-[has-answer=true]:order-none"
         >
-            <section id="chain-section" class="hidden bg-white/95 text-fm-primary rounded-lg p-6 shadow-lg">
-                <h4 class="font-display text-2xl md:text-3xl text-center my-4">
-                    <%= t('calculator.chain.title') %>
-                </h4>
-                <p id="chain-loading" class="text-center font-body hidden"></p>
-                <div id="chain-output"></div>
-                <div class="text-center">
-                    <button
-                        type="button"
-                        id="chainBtn"
-                        class="hidden mt-4 min-h-[44px] px-4 py-2 bg-fm-primary text-white rounded hover:bg-fm-primary/80 font-display text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fm-primary"
-                    >
+            <section id="chain-section" aria-labelledby="chain-title" class="hidden win">
+                <div class="win-bar win-bar-blue">
+                    <h2 id="chain-title" class="win-title"><%= t('calculator.chain.title') %></h2>
+                    <button type="button" id="chainBtn" class="hidden wb-btn">
                         <%= t('calculator.btn.retry') %>
                     </button>
                 </div>
-            </section>
-            <section class="bg-white/95 text-fm-primary rounded-lg p-6 shadow-lg">
-                <h4 class="font-display text-2xl md:text-3xl text-center my-4">
-                    <%= t('calculator.results.title') %>
-                </h4>
-                <div id="results-error"></div>
-                <div id="results-status" role="status" aria-live="polite"></div>
-                <div class="grid md:grid-cols-2 gap-4">
-                    <div id="outputarealeft"></div>
-                    <div id="outputarearight"></div>
+                <div class="win-body">
+                    <p id="chain-loading" class="m-0 text-center hidden"></p>
+                    <div id="chain-output"></div>
                 </div>
-                <div id="outputareaother" class="hidden flex-wrap justify-center gap-x-3 mt-4"></div>
-                <div id="rituals-output" class="hidden mt-4"></div>
+            </section>
+            <section aria-labelledby="results-title" class="win">
+                <div class="win-bar win-bar-grey">
+                    <h2 id="results-title" class="win-title"><%= t('calculator.results.title') %></h2>
+                </div>
+                <div class="win-body">
+                    <div id="results-error"></div>
+                    <div id="results-status" role="status" aria-live="polite"></div>
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div id="outputarealeft"></div>
+                        <div id="outputarearight"></div>
+                    </div>
+                    <div id="outputareaother" class="hidden flex-wrap justify-center gap-x-3 mt-4"></div>
+                    <div id="rituals-output" class="hidden mt-4"></div>
+                </div>
             </section>
         </div>
     </div>

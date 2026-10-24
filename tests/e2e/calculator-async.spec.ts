@@ -800,7 +800,7 @@ test.describe("the chain retry button", () => {
         await retry.focus();
 
         await expect(retry).toBeFocused();
-        await expect(retry).toHaveCSS("outline-width", "2px");
+        await expect(retry).toHaveCSS("outline-width", "3px");
         await expect(retry).not.toHaveCSS("outline-style", "none");
     });
 });

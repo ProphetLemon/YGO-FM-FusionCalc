@@ -160,3 +160,61 @@ test.describe("slot counter", () => {
         });
     });
 });
+
+test.describe("the Workbench frame", () => {
+    test.use({ viewport: { width: 1280, height: 1000 } });
+
+    const bar = (page: Page, selector: string): Promise<string> =>
+        page.locator(selector).evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    test("has one h1 and a subtitle", async ({ page }) => {
+        await page.goto("/calculator");
+        await expect(page.locator("h1")).toHaveCount(1);
+        await expect(page.locator("h1")).toHaveText("Calculadora de fusiones");
+        await expect(page.getByText("Introduce las cartas que tienes.")).toBeVisible();
+    });
+
+    test("puts the hand in a panel with a grey bar that holds the title and the count", async ({ page }) => {
+        await page.goto("/calculator");
+        expect(await bar(page, "#hand-section .win-bar")).toBe("rgb(60, 62, 69)");
+        await expect(page.locator("#hand-section .win-bar h2")).toHaveText("Tu mano");
+        await expect(page.locator("#hand-section .win-bar #hand-count")).toBeVisible();
+    });
+
+    test("shows the slots in use as filled pips of a twelve pip meter", async ({ page }) => {
+        await page.goto("/calculator");
+        const filled = page.locator('#hand-meter .pip[data-on="true"]');
+        await expect(page.locator("#hand-meter .pip")).toHaveCount(MAX_SLOTS);
+        await expect(filled).toHaveCount(START_SLOTS);
+        await page.locator("#addSlotBtn").click();
+        await expect(filled).toHaveCount(START_SLOTS + 1);
+        await page.locator(".remove-btn").first().click();
+        await expect(filled).toHaveCount(START_SLOTS);
+    });
+
+    test("frames a filled slot as a card tile of its kind", async ({ page }) => {
+        await page.goto("/calculator");
+        await fillSlot(page, 0, "Mystical Elf");
+        await fillSlot(page, 1, "Legendary Sword");
+        await fillSlot(page, 2, "Dark Hole");
+        const tile = (index: number) => slotAt(page, index).locator(".slot-tile");
+        await expect(tile(0)).toHaveClass(/bg-card-monster/);
+        await expect(tile(0).locator(".slot-stat")).toHaveText("800 / 2000");
+        await expect(tile(1)).toHaveClass(/bg-card-equip/);
+        await expect(tile(1).locator(".slot-stat")).toHaveText("Equip");
+        await expect(tile(2)).toHaveClass(/bg-card-magic/);
+    });
+
+    test("gives the chain panel a blue bar and the results panel a grey one", async ({ page }) => {
+        await page.goto("/calculator");
+        await fillPair(page);
+        expect(await bar(page, "#chain-section .win-bar")).toBe("rgb(31, 70, 176)");
+        await expect(page.locator("#chain-section .win-bar h2")).toHaveText("Cadena óptima de fusiones");
+        expect(await bar(page, "#answer-column > section:last-child .win-bar")).toBe("rgb(60, 62, 69)");
+    });
+
+    test("keeps the hand panel in view on a tall desktop window", async ({ page }) => {
+        await page.goto("/calculator");
+        await expect(page.locator("#hand-section")).toHaveCSS("position", "sticky");
+    });
+});
