@@ -465,15 +465,15 @@ test.describe("an equip pair", () => {
         ]);
     });
 
-    test("keeps the neutral labels for a fusion", async ({ page }) => {
+    test("a fusion lists its result first and keeps the neutral labels for its inputs", async ({ page }) => {
         await openCalculator(page);
 
         await fillHand(page, FUSION_ONLY);
 
         await expect(page.locator("#outputarealeft > div p")).toHaveText([
+            "Resultado: Queen of Autumn Leaves (1800/1500)",
             `Carta: ${MYSTICAL_ELF}`,
             `Carta: ${MUSHROOM_MAN}`,
-            "Resultado: Queen of Autumn Leaves (1800/1500)",
         ]);
     });
 
@@ -624,10 +624,13 @@ test.describe("the chain", () => {
         const chains = await calculateChain(page, CHAIN_HAND);
         await expect(page.locator("#chain-output").getByRole("note")).toBeVisible();
 
+        // The two cards left are searched again: that answer is the real one, which is not partial.
+        await page.unroute(isChainSearch);
         await slotAt(page, 1).locator(".clear-btn").click();
 
         await expect(chains).toHaveCount(0);
-        await expect(page.locator("#chain-output")).toBeEmpty();
+        await expect(page.locator("#chain-output")).toContainText(TEXT.noChain);
+        await expect(page.locator("#chain-output").getByRole("note")).toHaveCount(0);
     });
 });
 

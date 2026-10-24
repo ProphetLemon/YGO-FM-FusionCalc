@@ -43,6 +43,7 @@ const REAL_FILE_NAME = /^[1-9]\d*\.jpg$/;
 
 // What a compact box measures (w-10 h-14) and what the large one of the search page does (w-40 h-56).
 const THUMBNAIL_SIZE = { width: 40, height: 56 };
+const RESULT_THUMBNAIL_SIZE = { width: 64, height: 96 };
 const SUMMARY_SIZE = { width: 160, height: 224 };
 
 // One transparent pixel: what the CDN answers for a file it has.
@@ -286,7 +287,8 @@ test.describe("the thumbnails beside a label", () => {
         await expect(box).toHaveText("");
         await expect(box).toHaveAttribute("aria-label", METEOR_B_DRAGON);
         await expect(entry.getByRole("img", { name: METEOR_B_DRAGON, exact: true })).toHaveCount(1);
-        expect(await boxOf(box)).toMatchObject(THUMBNAIL_SIZE);
+        // The result line carries the larger thumbnail of a calculator fusion.
+        expect(await boxOf(box)).toMatchObject(RESULT_THUMBNAIL_SIZE);
         await expectAsked(page, asked, [FILE.meteorDragon, FILE.redEyesBDragon]);
     });
 
@@ -301,7 +303,9 @@ test.describe("the thumbnails beside a label", () => {
         await expectLoaded(first);
         await expect(first).toHaveAttribute("src", `${CDN}/${FILE.redEyesBDragon}`);
         await expect(first).toHaveAttribute("alt", RED_EYES_B_DRAGON);
-        await expect(entry.locator(".card-placeholder").first()).toHaveCSS("display", "none");
+        await expect(
+            first.locator("xpath=following-sibling::*[contains(@class,'card-placeholder')]")
+        ).toHaveCSS("display", "none");
     });
 
     test("a ritual shows the same box for a card the CDN lacks and for a card with no artwork", async ({

@@ -56,6 +56,8 @@
     "calculator.results.loading": "Calculando resultados…",
     "calculator.results.no-fusions": "No hay fusiones posibles con esta mano.",
     "calculator.results.no-equips": "No hay equipos posibles con esta mano.",
+    "calculator.results.no-monster-fusions": "Ninguna fusión de esta mano da un monstruo.",
+    "calculator.results.non-monster": "Resultados que no son monstruos",
     "calculator.results.error": "No se pudieron calcular los resultados. Inténtalo de nuevo.",
     "calculator.chain.title": "Cadena óptima de fusiones",
     "calculator.chain.loading": "Calculando…",

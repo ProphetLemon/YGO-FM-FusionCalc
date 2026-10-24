@@ -3,12 +3,12 @@ import { Autocomplete } from "../components/autocomplete.js";
 import {
     renderBestChain,
     renderEquip,
+    renderFusion,
     renderOtherChains,
-    renderPair,
     renderRitual,
 } from "../components/fusion-card.js";
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
-import type { CalculatorResponse, CardSummary, RitualExpanded } from "../../shared/types.js";
+import type { CalculatorResponse, CardSummary, FusionExpanded, RitualExpanded } from "../../shared/types.js";
 import { MAX_HAND_SIZE } from "../../shared/limits.js";
 import { MIN_HAND_SIZE, canAddSlot, canRemoveSlot, getSlotIds, getValidIds } from "../lib/slots.js";
 import { createCardImg } from "../lib/card-image.js";
@@ -54,6 +54,7 @@ function mountCalculatorPage(): void {
     const resetBtn = qs<HTMLButtonElement>("#resetBtn");
     const outputLeft = qs<HTMLElement>("#outputarealeft");
     const outputRight = qs<HTMLElement>("#outputarearight");
+    const outputOther = qs<HTMLElement>("#outputareaother");
     const outputRituals = qs<HTMLElement>("#rituals-output");
     const resultsError = qs<HTMLElement>("#results-error");
     const resultsStatus = qs<HTMLElement>("#results-status");
@@ -71,6 +72,7 @@ function mountCalculatorPage(): void {
         !addBtn ||
         !outputLeft ||
         !outputRight ||
+        !outputOther ||
         !outputRituals ||
         !resultsError ||
         !resultsStatus ||
@@ -115,7 +117,8 @@ function mountCalculatorPage(): void {
     const clearResults = (): void => {
         clear(outputLeft);
         clear(outputRight);
-        hideRituals(outputRituals);
+        hideBlock(outputOther);
+        hideBlock(outputRituals);
         clear(resultsError);
     };
 
@@ -139,9 +142,17 @@ function mountCalculatorPage(): void {
     };
 
     const renderResults = (result: CalculatorResponse): void => {
+        // The server sorts fusions by the ATK of what they make; each kind keeps that order.
+        const monsters = result.fusions.filter((fusion) => fusion.result.isMonster);
+        const others = result.fusions.filter((fusion) => !fusion.result.isMonster);
         appendHeader(outputLeft, t("search.results.fusions"));
-        for (const fusion of result.fusions) outputLeft.appendChild(renderPair(fusion));
-        if (result.fusions.length === 0) appendNone(outputLeft, t("calculator.results.no-fusions"));
+        for (const fusion of monsters) outputLeft.appendChild(renderFusion(fusion));
+        if (monsters.length === 0) {
+            const key =
+                others.length === 0 ? "calculator.results.no-fusions" : "calculator.results.no-monster-fusions";
+            appendNone(outputLeft, t(key));
+        }
+        showOtherResults(outputOther, others);
         appendHeader(outputRight, t("search.results.equips"));
         for (const equip of result.equips) outputRight.appendChild(renderEquip(equip));
         if (result.equips.length === 0) appendNone(outputRight, t("calculator.results.no-equips"));
@@ -545,9 +556,20 @@ function appendNote(where: HTMLElement, message: string): void {
 }
 
 // Hidden with the class, not just emptied: the block has a top margin that would leave a gap.
-function hideRituals(where: HTMLElement): void {
+function hideBlock(where: HTMLElement): void {
     clear(where);
+    where.classList.remove("flex");
     where.classList.add("hidden");
+}
+
+function showOtherResults(where: HTMLElement, fusions: readonly FusionExpanded[]): void {
+    if (fusions.length === 0) return;
+    appendHeader(where, t("calculator.results.non-monster"));
+    // The entries are direct children of the block, so the heading takes a full row of the wrapping flex.
+    where.firstElementChild?.classList.add("w-full");
+    for (const fusion of fusions) where.appendChild(renderFusion(fusion));
+    where.classList.remove("hidden");
+    where.classList.add("flex");
 }
 
 function showRituals(where: HTMLElement, rituals: readonly RitualExpanded[]): void {

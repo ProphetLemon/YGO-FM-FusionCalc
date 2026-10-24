@@ -441,9 +441,9 @@ test.describe("restoring the hand", () => {
         await expect(page.locator("html")).toHaveAttribute("lang", "en");
         await expectHand(page, [MYSTICAL_ELF, MUSHROOM_MAN, null, null, null]);
         await expect(page.locator("#outputarealeft > div p")).toHaveText([
+            `Result: ${FUSION_RESULT} (1800/1500)`,
             `Input: ${MYSTICAL_ELF}`,
             `Input: ${MUSHROOM_MAN}`,
-            `Result: ${FUSION_RESULT} (1800/1500)`,
         ]);
 
         await page.getByRole("button", { name: "Español" }).click();
@@ -451,9 +451,9 @@ test.describe("restoring the hand", () => {
         await expect(page.locator("html")).toHaveAttribute("lang", "es");
         await expectHand(page, [MYSTICAL_ELF, MUSHROOM_MAN, null, null, null]);
         await expect(page.locator("#outputarealeft > div p")).toHaveText([
+            `Resultado: ${FUSION_RESULT} (1800/1500)`,
             `Carta: ${MYSTICAL_ELF}`,
             `Carta: ${MUSHROOM_MAN}`,
-            `Resultado: ${FUSION_RESULT} (1800/1500)`,
         ]);
     });
 

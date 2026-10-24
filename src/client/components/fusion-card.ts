@@ -40,6 +40,33 @@ export function renderPair(entry: FusionExpanded | EquipExpanded | ResultExpande
     return div;
 }
 
+// A fusion of the calculator: what it makes comes first, large and bold, then the two cards that make it.
+// `renderPair` keeps its order (inputs first) for the search page.
+export function renderFusion(entry: FusionExpanded): HTMLElement {
+    const div = document.createElement("div");
+    div.className = `fusion-entry ${ENTRY_CLASS}`;
+
+    const result = document.createElement("div");
+    result.className = "fusion-result flex items-center gap-3 mb-3 pb-3 border-b border-fm-primary/20";
+    result.appendChild(
+        createCardImg(entry.result.name, entry.result.imageCode, "w-16 h-24 flex-shrink-0", {
+            compact: true,
+        })
+    );
+    const text = document.createElement("p");
+    text.className = "min-w-0 text-base font-bold";
+    const label = document.createElement("strong");
+    label.textContent = `${t("card.label.result")}: `;
+    text.appendChild(label);
+    text.appendChild(document.createTextNode(describeResult(entry.result)));
+    result.appendChild(text);
+    div.appendChild(result);
+
+    div.appendChild(makeCardLine(t("card.label.input"), entry.card1));
+    div.appendChild(makeCardLine(t("card.label.input"), entry.card2));
+    return div;
+}
+
 // The Equip card goes first whatever the hand order was. A pair that is not one Equip and one other card
 // cannot be told apart by role, so it keeps the neutral labels of renderPair.
 export function renderEquip(entry: EquipExpanded): HTMLElement {

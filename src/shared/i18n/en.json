@@ -56,6 +56,8 @@
     "calculator.results.loading": "Calculating results…",
     "calculator.results.no-fusions": "No fusions are possible with this hand.",
     "calculator.results.no-equips": "No equips are possible with this hand.",
+    "calculator.results.no-monster-fusions": "No fusion in this hand makes a monster.",
+    "calculator.results.non-monster": "Results that are not monsters",
     "calculator.results.error": "The results could not be calculated. Please try again.",
     "calculator.chain.title": "Optimal fusion chain",
     "calculator.chain.loading": "Calculating…",
