@@ -17,6 +17,8 @@ const FUSION_PAIR = [MYSTICAL_ELF, MUSHROOM_MAN];
 // A ritual card with its three materials, three of whose pairs also fuse: both result blocks fill up.
 const DANCE_HAND = ["Commencement Dance", "Water Omotics", "Dancing Elf", "Bean Soldier"];
 const UNKNOWN_NAME = "Definitely Not A Card";
+// Two monsters with neither a fusion nor an equip between them: no chain can start.
+const NO_CHAIN_PAIR = ["Blue-eyes White Dragon", MYSTICAL_ELF];
 
 const TEXT = {
     invalidName: "Nombre de carta inválido",
@@ -483,7 +485,6 @@ test.describe("the chain output", () => {
     async function chainForPair(page: Page): Promise<void> {
         await openCalculator(page);
         await fillHand(page, FUSION_PAIR);
-        await page.locator("#chainBtn").click();
         await expect(page.locator("#chain-output")).toContainText("Paso 1");
     }
 
@@ -493,6 +494,7 @@ test.describe("the chain output", () => {
         await page.locator("#resetBtn").click();
 
         await expect(page.locator("#chain-output")).toBeEmpty();
+        await expect(page.locator("#chain-section")).toBeHidden();
     });
 
     test("is cleared when a card leaves the hand", async ({ page }) => {
@@ -501,29 +503,36 @@ test.describe("the chain output", () => {
         await slotAt(page, 1).locator(".clear-btn").click();
 
         await expect(page.locator("#chain-output")).toBeEmpty();
+        await expect(page.locator("#chain-section")).toBeHidden();
     });
 
-    test("is cleared when a card joins the hand", async ({ page }) => {
+    test("is dropped when a card joins the hand, until the chain of the new hand arrives", async ({
+        page,
+    }) => {
         await chainForPair(page);
+        const held = await holdRequests(page, isChainSearch);
 
         await fillSlot(page, 2, "Blue-eyes White Dragon");
 
+        await expect.poll(() => held.length).toBe(1);
         await expect(page.locator("#chain-output")).toBeEmpty();
+        await expect(page.locator("#chain-loading")).toBeVisible();
+        for (const route of held) await release(route);
+        await expect(page.locator("#chain-output")).toContainText("Paso 1");
+        await expect(page.locator("#chain-loading")).toBeHidden();
     });
 
     test("is not shown for a hand that changed while its request was in flight", async ({ page }) => {
         await openCalculator(page);
-        await fillHand(page, FUSION_PAIR);
         const held = await holdRequests(page, isChainSearch);
         const chains = logRequests(page, isChainSearch);
-        await page.locator("#chainBtn").click();
+        await fillHand(page, FUSION_PAIR);
         await expect(page.locator("#chain-loading")).toBeVisible();
-        await expect(page.locator("#chainBtn")).toBeDisabled();
+        await expect.poll(() => held.length).toBe(1);
 
         await slotAt(page, 1).locator(".clear-btn").click();
 
         await expect(page.locator("#chain-loading")).toBeHidden();
-        await expect(page.locator("#chainBtn")).toBeEnabled();
         await expect(page.locator("#chainBtn")).not.toHaveAttribute("aria-busy", "true");
         await expectAlive(chains, 0);
         for (const route of held) await release(route);
@@ -534,43 +543,265 @@ test.describe("the chain output", () => {
 
     test("is not shown after a reset while its request was in flight", async ({ page }) => {
         await openCalculator(page);
-        await fillHand(page, FUSION_PAIR);
         const held = await holdRequests(page, isChainSearch);
         const chains = logRequests(page, isChainSearch);
-        await page.locator("#chainBtn").click();
+        await fillHand(page, FUSION_PAIR);
         await expect(page.locator("#chain-loading")).toBeVisible();
 
         await page.locator("#resetBtn").click();
 
         await expect(page.locator("#chain-loading")).toBeHidden();
-        await expect(page.locator("#chainBtn")).toBeEnabled();
         await expectAlive(chains, 0);
         for (const route of held) await release(route);
         await settled(page, chains);
         await expect(page.locator("#chain-output")).toBeEmpty();
     });
+
+    test("shows the loading text while the request is in flight and only then", async ({ page }) => {
+        await openCalculator(page);
+        const held = await holdRequests(page, isChainSearch);
+        await expect(page.locator("#chain-loading")).toBeHidden();
+
+        await fillHand(page, FUSION_PAIR);
+
+        await expect(page.locator("#chain-loading")).toHaveText("Calculando…");
+        await expect(page.locator("#chain-output")).toBeEmpty();
+        await expect.poll(() => held.length).toBe(1);
+        for (const route of held) await release(route);
+        await expect(page.locator("#chain-output")).toContainText("Paso 1");
+        await expect(page.locator("#chain-loading")).toBeHidden();
+    });
+
+    test("never shows a slow answer for an old hand over the newer one", async ({ page }) => {
+        const answer = (finalName: string): unknown => {
+            const card = (id: number, name: string): unknown => ({
+                id,
+                name,
+                description: "",
+                type: 0,
+                typeName: "Warrior",
+                attack: 1000,
+                defense: 1000,
+                stars: 1,
+                password: "00000000",
+                imageCode: null,
+                isMonster: true,
+            });
+            const final = card(3, finalName);
+            return {
+                chains: [
+                    {
+                        steps: [{ card1: card(1, "In A"), card2: card(2, "In B"), result: final }],
+                        finalCard: final,
+                    },
+                ],
+                truncated: false,
+            };
+        };
+        await openCalculator(page);
+        const held = await holdRequests(page, isChainSearch);
+        await fillHand(page, FUSION_PAIR);
+        await expect.poll(() => held.length).toBe(1);
+        await fillSlot(page, 2, "Blue-eyes White Dragon");
+        await expect.poll(() => held.length).toBe(2);
+
+        await held[1]?.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(answer("New Hand Card")),
+        });
+        await expect(page.locator("#chain-output .chain-verdict")).toContainText("New Hand Card");
+        await held[0]
+            ?.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify(answer("Old Hand Card")),
+            })
+            .catch(() => undefined);
+        await pause(page);
+
+        await expect(page.locator("#chain-output .chain-verdict")).toContainText("New Hand Card");
+        await expect(page.locator("#chain-output")).not.toContainText("Old Hand Card");
+    });
 });
 
-test.describe("the chain button", () => {
-    test("sends one request for a double click and stays disabled while it runs", async ({ page }) => {
+test.describe("the chain request", () => {
+    test("is sent once per committed hand change with two cards or more, and never below", async ({
+        page,
+    }) => {
+        await openCalculator(page);
+        const chains = logRequests(page, isChainSearch);
+
+        await fillSlot(page, 0, MYSTICAL_ELF);
+        await expect(slotAt(page, 0).locator(".slot-name")).toHaveText(MYSTICAL_ELF);
+        await pause(page);
+        expect(chains.started).toHaveLength(0);
+
+        await fillSlot(page, 1, MUSHROOM_MAN);
+        await expect(page.locator("#chain-output")).toContainText("Paso 1");
+        // fill() and the dispatched event both fire a change: the same hand is not asked for twice.
+        await slotAt(page, 1).locator("input").dispatchEvent("change");
+        await settled(page, chains);
+        expect(chains.started).toHaveLength(1);
+        expect(sentHandIds(chains.started[0]!)).toHaveLength(2);
+
+        await fillSlot(page, 2, "Blue-eyes White Dragon");
+        await expect.poll(() => chains.started.length).toBe(2);
+        expect(sentHandIds(chains.started[1]!)).toHaveLength(3);
+
+        await slotAt(page, 2).locator(".clear-btn").click();
+        await slotAt(page, 1).locator(".clear-btn").click();
+        await settled(page, chains);
+        expect(chains.started).toHaveLength(3);
+        await expect(page.locator("#chain-section")).toBeHidden();
+    });
+
+    test("does not repeat the calculation of the results", async ({ page }) => {
         await openCalculator(page);
         await fillHand(page, FUSION_PAIR);
+        await expect(page.locator("#chain-output")).toContainText("Paso 1");
+        const calculations = logRequests(page, isCalculator);
+        const chains = logRequests(page, isChainSearch);
+
+        await page.route(isChainSearch, fulfillJson(500, apiError("internal-error")));
+        await slotAt(page, 2).locator("input").fill("Blue-eyes White Dragon");
+        await slotAt(page, 2).locator("input").dispatchEvent("change");
+        await expect(page.locator("#chain-output").getByRole("alert")).toBeVisible();
+        await page.unroute(isChainSearch);
+        await settled(page, chains);
+        const calculated = calculations.started.length;
+
+        await page.locator("#chainBtn").click();
+        await expect(page.locator("#chain-output")).toContainText("Paso 1");
+
+        expect(calculations.started).toHaveLength(calculated);
+    });
+});
+
+test.describe("the results and the chain are independent", () => {
+    test("render the chain even when the results are slow, once they settle", async ({ page }) => {
+        await openCalculator(page);
+        const heldCalculations = await holdRequests(page, isCalculator);
+        const chainAnswered = page.waitForResponse((response) => isChainSearch(new URL(response.url())));
+
+        await fillHand(page, FUSION_PAIR);
+        await (await chainAnswered).finished();
+        await pause(page);
+
+        // The answer waits for the results: the gain line needs their best fusion.
+        await expect(page.locator("#chain-output .chain-best")).toHaveCount(0);
+        await expect(page.locator("#chain-loading")).toBeVisible();
+        for (const route of heldCalculations) await release(route);
+        await expect(page.locator("#chain-output .chain-best")).toBeVisible();
+        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+    });
+
+    test("show the results when the chain search never answers", async ({ page }) => {
+        await openCalculator(page);
+        await holdRequests(page, isChainSearch);
+
+        await fillHand(page, FUSION_PAIR);
+
+        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#chain-loading")).toBeVisible();
+    });
+});
+
+test.describe("the chain retry button", () => {
+    test("is hidden by default and while the chain works", async ({ page }) => {
+        await openCalculator(page);
+        await expect(page.locator("#chainBtn")).toBeHidden();
+        await expect(page.locator("#chainBtn")).toHaveText(TEXT.retry);
+
+        await fillHand(page, FUSION_PAIR);
+
+        await expect(page.locator("#chain-output")).toContainText("Paso 1");
+        await expect(page.locator("#chainBtn")).toBeHidden();
+    });
+
+    test("appears with the error, recovers on click and asks only for the chain again", async ({ page }) => {
+        await page.route(isChainSearch, fulfillJson(500, apiError("internal-error")));
+        await openCalculator(page);
+        const calculations = logRequests(page, isCalculator);
+        const chains = logRequests(page, isChainSearch);
+
+        await fillHand(page, FUSION_PAIR);
+
+        const retry = page.locator("#chainBtn");
+        await expect(page.locator("#chain-output").getByRole("alert")).toHaveText(TEXT.chainFailed);
+        await expect(retry).toBeVisible();
+        await expect(retry).toBeEnabled();
+        const box = await retry.boundingBox();
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+        await settled(page, chains);
+        const calculated = calculations.started.length;
+        const asked = chains.started.length;
+
+        await page.unroute(isChainSearch);
+        await retry.click();
+
+        await expect(page.locator("#chain-output")).toContainText("Paso 1");
+        await expect(page.locator("#chain-output").getByRole("alert")).toHaveCount(0);
+        await expect(retry).toBeHidden();
+        await expect(page.locator("#chain-loading")).toBeHidden();
+        expect(chains.started).toHaveLength(asked + 1);
+        expect(calculations.started).toHaveLength(calculated);
+    });
+
+    test("is busy while the retry is in flight, and one click sends one request", async ({ page }) => {
+        await page.route(isChainSearch, fulfillJson(500, apiError("internal-error")));
+        await openCalculator(page);
+        await fillHand(page, FUSION_PAIR);
+        const retry = page.locator("#chainBtn");
+        await expect(retry).toBeVisible();
+        await page.unroute(isChainSearch);
         const held = await holdRequests(page, isChainSearch);
         const chains = logRequests(page, isChainSearch);
-        const button = page.locator("#chainBtn");
 
-        await button.dblclick();
+        await retry.dblclick();
 
-        await expect(button).toBeDisabled();
-        await expect(button).toHaveAttribute("aria-busy", "true");
+        await expect(retry).toBeDisabled();
+        await expect(retry).toHaveAttribute("aria-busy", "true");
         await expect(page.locator("#chain-loading")).toBeVisible();
         await expect.poll(() => held.length).toBeGreaterThan(0);
         for (const route of held) await release(route);
         await settled(page, chains);
         await expect(page.locator("#chain-output")).toContainText("Paso 1");
-        await expect(button).toBeEnabled();
-        await expect(button).not.toHaveAttribute("aria-busy", "true");
+        await expect(retry).toBeHidden();
+        await expect(retry).not.toHaveAttribute("aria-busy", "true");
         expect(chains.started).toHaveLength(1);
+    });
+
+    test("stays after a second failure and goes when the hand changes", async ({ page }) => {
+        await page.route(isChainSearch, fulfillJson(500, apiError("internal-error")));
+        await openCalculator(page);
+        await fillHand(page, FUSION_PAIR);
+        const retry = page.locator("#chainBtn");
+        await expect(retry).toBeVisible();
+
+        await retry.click();
+        await expect(page.locator("#chain-output").getByRole("alert")).toHaveText(TEXT.chainFailed);
+        await expect(retry).toBeVisible();
+        await expect(retry).toBeEnabled();
+
+        await slotAt(page, 1).locator(".clear-btn").click();
+        await expect(retry).toBeHidden();
+    });
+
+    test("has a visible focus ring", async ({ page }) => {
+        await page.route(isChainSearch, fulfillJson(500, apiError("internal-error")));
+        await openCalculator(page);
+        await fillHand(page, FUSION_PAIR);
+        const retry = page.locator("#chainBtn");
+        await expect(retry).toBeVisible();
+
+        // Any keyboard use makes the next focus a :focus-visible one.
+        await page.keyboard.press("Tab");
+        await retry.focus();
+
+        await expect(retry).toBeFocused();
+        await expect(retry).toHaveCSS("outline-width", "2px");
+        await expect(retry).not.toHaveCSS("outline-style", "none");
     });
 });
 
@@ -578,7 +809,6 @@ test.describe("chain search errors", () => {
     async function searchChainFor(page: Page): Promise<void> {
         await openCalculator(page);
         await fillHand(page, FUSION_PAIR);
-        await page.locator("#chainBtn").click();
     }
 
     test("name the hand limit when the server rejects the hand as too large", async ({ page }) => {
@@ -621,9 +851,10 @@ test.describe("chain search errors", () => {
     test("still say so when the hand has no chain", async ({ page }) => {
         await openCalculator(page);
 
-        await page.locator("#chainBtn").click();
+        await fillHand(page, NO_CHAIN_PAIR);
 
         await expect(page.locator("#chain-output")).toHaveText(TEXT.noChain);
+        await expect(page.locator("#chainBtn")).toBeHidden();
     });
 });
 
@@ -705,15 +936,15 @@ test.describe("in English", () => {
         await openCalculator(page);
         await fillSlot(page, 0, UNKNOWN_NAME);
         await expect(slotAt(page, 0).getByRole("alert")).toHaveText("Invalid card name");
+        await page.route(isChainSearch, fulfillJson(400, apiError("hand-too-large")));
         await fillSlot(page, 1, MYSTICAL_ELF);
         await fillSlot(page, 2, MUSHROOM_MAN);
         await expect(slotAt(page, 2).locator(".slot-name")).toHaveText(MUSHROOM_MAN);
 
-        await page.route(isChainSearch, fulfillJson(400, apiError("hand-too-large")));
-        await page.locator("#chainBtn").click();
         await expect(page.locator("#chain-output").getByRole("alert")).toHaveText(
             `Hand is too large for chain calculation (max ${MAX_HAND_SIZE} cards).`
         );
+        await expect(page.locator("#chainBtn")).toHaveText("Retry");
 
         await page.unroute(isChainSearch);
         await page.route(isChainSearch, fulfillJson(500, apiError("internal-error")));

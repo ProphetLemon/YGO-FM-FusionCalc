@@ -64,9 +64,11 @@ test.describe("desktop layout", () => {
 
     test("the chain section sits above the results section in the answer column", async ({ page }) => {
         await page.goto("/calculator");
-        const chain = await box(
-            page.locator("#answer-column section").filter({ has: page.locator("#chainBtn") })
-        );
+        await fillPair(page);
+        await expect(page.locator("#chain-section")).toBeVisible();
+        // The chain grows the section once it arrives: measure after that.
+        await expect(page.locator("#chain-output .chain-best")).toBeVisible();
+        const chain = await box(page.locator("#chain-section"));
         const results = await box(
             page.locator("#answer-column section").filter({ has: page.locator("#outputarealeft") })
         );

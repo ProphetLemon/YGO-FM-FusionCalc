@@ -8,7 +8,12 @@ import {
     type Route,
 } from "@playwright/test";
 import { MAX_HAND_SIZE } from "../../src/shared/limits.js";
-import type { CalculatorResponse, CardSummary, ChainSearchResponse } from "../../src/shared/types.js";
+import type {
+    CalculatorResponse,
+    CardSummary,
+    ChainResult,
+    ChainSearchResponse,
+} from "../../src/shared/types.js";
 
 const START_SLOTS = 5;
 const MYSTICAL_ELF = "Mystical Elf";
@@ -502,10 +507,10 @@ test.describe("an equip pair", () => {
 });
 
 test.describe("the chain", () => {
+    // The chain comes by itself once the hand has two cards: there is nothing to click.
     async function calculateChain(page: Page, names: readonly string[]): Promise<Locator> {
         await openCalculator(page);
         await fillHand(page, names);
-        await page.locator("#chainBtn").click();
         return page.locator("#chain-output .chain-entry");
     }
 
@@ -532,16 +537,16 @@ test.describe("the chain", () => {
         }
         const final = chains.locator(".chain-final");
         await expect(final).toHaveCount(1);
-        await expect(final.locator("p")).toHaveText([
-            "Resultado: Crimson Sunbird (2300/1800)",
-            "ATK final: 2300",
-        ]);
+        await expect(final.locator("p")).toHaveText(["Crimson Sunbird (2300/1800)", "ATK final: 2300"]);
         await expect(final.locator("img")).toHaveCount(1);
         await expect(final.locator("img")).toHaveAttribute(
             "src",
             new RegExp(`/${PASSWORD.crimsonSunbird}\\.jpg$`)
         );
-        await expect(chains.locator(":scope > *").last()).toHaveClass(/chain-final/);
+        // The result opens the best play, before the steps that lead to it.
+        await expect(chains.locator(":scope > *").first()).toHaveClass(/chain-headline/);
+        await expect(chains.locator(":scope > *").first().locator(".chain-final")).toHaveCount(1);
+        await expect(chains.locator(":scope > ol")).toHaveCount(1);
     });
 
     test("does not end in a card the hand merely holds", async ({ page }) => {
@@ -575,8 +580,9 @@ test.describe("the chain", () => {
         const best = chains.first();
         await expect(best.locator(".chain-step")).toHaveCount(3);
         await expect(best.locator(".chain-step > p")).toHaveText(["Paso 1", "Paso 2", "Paso 3"]);
-        await expect(best.locator(".chain-final p").first()).toHaveText(
-            "Resultado: Vermillion Sparrow (1900/1500)"
+        await expect(best.locator(".chain-final p").first()).toHaveText("Vermillion Sparrow (1900/1500)");
+        await expect(best.locator(".chain-verdict")).toHaveText(
+            "Fusiona en 3 pasos para obtener Vermillion Sparrow."
         );
         await expect(chains.locator(".chain-final")).toHaveCount(await chains.count());
     });
@@ -608,8 +614,6 @@ test.describe("the chain", () => {
         await openCalculator(page);
         await fillHand(page, NOTHING);
 
-        await page.locator("#chainBtn").click();
-
         await expect(page.locator("#chain-output")).toContainText(TEXT.noChain);
         await expect(page.locator("#chain-output").getByRole("note")).toHaveText(TEXT.truncated);
         await expect(page.locator("#chain-output .chain-entry")).toHaveCount(0);
@@ -624,6 +628,215 @@ test.describe("the chain", () => {
 
         await expect(chains).toHaveCount(0);
         await expect(page.locator("#chain-output")).toBeEmpty();
+    });
+});
+
+// A card that is a monster with the ATK the test wants; the rest of its data is irrelevant to the chain.
+function monster(id: number, name: string, attack: number): CardSummary {
+    return { ...summary(id, name, "Warrior"), attack };
+}
+
+// A chain of `steps` fusions that ends in `finalCard`, with made-up intermediate cards.
+function chainTo(finalCard: CardSummary, steps = 1): ChainResult {
+    const made = Array.from({ length: steps }, (_, i) =>
+        i === steps - 1 ? finalCard : monster(900 + i, `Intermediate ${i + 1}`, 800)
+    );
+    return {
+        steps: made.map((result, i) => ({
+            card1: i === 0 ? monster(801, "Input A", 500) : made[i - 1]!,
+            card2: monster(802 + i, `Input ${i + 2}`, 500),
+            result,
+        })),
+        finalCard,
+    };
+}
+
+function calculatorAnswer(...results: CardSummary[]): CalculatorResponse {
+    return {
+        fusions: results.map((result) => ({
+            card1: monster(801, "Input A", 500),
+            card2: monster(802, "Input B", 500),
+            result,
+        })),
+        equips: [],
+        rituals: [],
+    };
+}
+
+test.describe("the best play", () => {
+    const BEST_SINGLE = monster(701, "Best Single", 1750);
+
+    async function showBestPlay(
+        page: Page,
+        calculation: CalculatorResponse,
+        chains: ChainResult[]
+    ): Promise<Locator> {
+        await page.route(isCalculator, fulfillJson(200, calculation));
+        await page.route(isChainSearch, fulfillJson(200, { chains, truncated: false }));
+        await openCalculator(page);
+        await fillHand(page, FUSION_ONLY);
+        const best = page.locator("#chain-output .chain-best");
+        await expect(best).toBeVisible();
+        return best;
+    }
+
+    test("says to fuse once when the best chain has a single step", async ({ page }) => {
+        const best = await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [
+            chainTo(monster(702, "One Step Card", 1750)),
+        ]);
+
+        await expect(best.locator(".chain-verdict")).toHaveText(
+            "Fusiona una vez para obtener One Step Card."
+        );
+        await expect(best.locator(".chain-final-atk")).toHaveText("ATK final: 1750");
+    });
+
+    test("counts the steps in the verdict and shows the gain over the best single fusion", async ({
+        page,
+    }) => {
+        const best = await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [
+            chainTo(monster(702, "Two Step Card", 1900), 2),
+        ]);
+
+        await expect(best.locator(".chain-verdict")).toHaveText(
+            "Fusiona en 2 pasos para obtener Two Step Card."
+        );
+        await expect(best.locator(".chain-gain")).toHaveText(
+            "150 de ATK más que tu mejor fusión simple, Best Single (1750)."
+        );
+        await expect(best.locator(".chain-gain")).toHaveCount(1);
+    });
+
+    test("shows no gain when the chain only matches the best single fusion", async ({ page }) => {
+        const best = await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [
+            chainTo(monster(702, "Same ATK", 1750), 2),
+        ]);
+
+        await expect(best.locator(".chain-final-atk")).toHaveText("ATK final: 1750");
+        await expect(best.locator(".chain-gain")).toHaveCount(0);
+    });
+
+    test("shows no gain when the chain makes less than the best single fusion", async ({ page }) => {
+        const best = await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [
+            chainTo(monster(702, "Weaker Card", 1200), 2),
+        ]);
+
+        await expect(best.locator(".chain-gain")).toHaveCount(0);
+    });
+
+    test("compares with the first fusion that makes a monster, not with a non-monster result", async ({
+        page,
+    }) => {
+        const spell = { ...summary(703, "Strong Spell", "Equip"), attack: 3000 };
+        const best = await showBestPlay(page, calculatorAnswer(spell, BEST_SINGLE), [
+            chainTo(monster(702, "Two Step Card", 1900), 2),
+        ]);
+
+        await expect(best.locator(".chain-gain")).toContainText("Best Single (1750)");
+    });
+
+    test("shows no gain line when the hand has no fusion that makes a monster", async ({ page }) => {
+        const best = await showBestPlay(page, calculatorAnswer(), [
+            chainTo(monster(702, "Two Step Card", 1900), 2),
+        ]);
+
+        await expect(best.locator(".chain-gain")).toHaveCount(0);
+    });
+
+    test("folds the other chains into one details element after the best play", async ({ page }) => {
+        await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [
+            chainTo(monster(702, "First Card", 1900), 2),
+            chainTo(monster(703, "Second Card", 1800)),
+            chainTo(monster(704, "Third Card", 1700)),
+        ]);
+
+        const output = page.locator("#chain-output");
+        await expect(output.locator(".chain-entry")).toHaveCount(3);
+        await expect(output.locator(":scope > .chain-best")).toHaveCount(1);
+        const others = output.locator(":scope > details.chain-others");
+        await expect(others).toHaveCount(1);
+        await expect(others.locator("summary")).toHaveText("Otras cadenas (2)");
+        await expect(others).not.toHaveAttribute("open", "");
+        await expect(others.locator(".chain-entry")).toHaveCount(2);
+        await expect(others.locator(".chain-entry.chain-best")).toHaveCount(0);
+        await expect(others.locator(".chain-entry").first().locator(".chain-final p").first()).toContainText(
+            "Second Card"
+        );
+        // After the best play, in the DOM order.
+        await expect(output.locator(":scope > *").last()).toHaveClass(/chain-others/);
+    });
+
+    test("has no details element when there is only one chain", async ({ page }) => {
+        await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [chainTo(monster(702, "Only Card", 1900))]);
+
+        await expect(page.locator("#chain-output details")).toHaveCount(0);
+    });
+
+    test("opens the other chains with the keyboard", async ({ page }) => {
+        await showBestPlay(page, calculatorAnswer(BEST_SINGLE), [
+            chainTo(monster(702, "First Card", 1900)),
+            chainTo(monster(703, "Second Card", 1800)),
+        ]);
+        const summaryOfOthers = page.locator("#chain-output details.chain-others summary");
+
+        await summaryOfOthers.focus();
+        await expect(summaryOfOthers).toBeFocused();
+        await page.keyboard.press("Enter");
+
+        await expect(page.locator("#chain-output details.chain-others")).toHaveAttribute("open", "");
+        await expect(page.locator("#chain-output details .chain-entry")).toBeVisible();
+        const box = await summaryOfOthers.boundingBox();
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+    });
+
+    test("is hidden together with the chain section below two cards, and shown from two", async ({
+        page,
+    }) => {
+        await openCalculator(page);
+        const section = page.locator("#chain-section");
+        await expect(section).toBeHidden();
+
+        await fillHand(page, [MYSTICAL_ELF]);
+        await expect(section).toBeHidden();
+
+        await fillSlot(page, 1, MUSHROOM_MAN);
+        await expect(section).toBeVisible();
+        await expect(section.getByRole("heading", { name: "Cadena óptima de fusiones" })).toBeVisible();
+        await expect(page.locator("#chain-output .chain-best")).toBeVisible();
+
+        await slotAt(page, 1).locator(".clear-btn").click();
+        await expect(section).toBeHidden();
+        await expect(page.locator("#chain-output")).toBeEmpty();
+
+        await fillSlot(page, 1, MUSHROOM_MAN);
+        await expect(section).toBeVisible();
+        await page.locator("#resetBtn").click();
+        await expect(section).toBeHidden();
+    });
+
+    test("keeps the results when the chain search fails", async ({ page }) => {
+        await page.route(
+            isChainSearch,
+            fulfillJson(500, { error: { code: "internal-error", message: "x" } })
+        );
+        await openCalculator(page);
+
+        await fillHand(page, FUSION_ONLY);
+
+        await expect(page.locator("#chain-output").getByRole("alert")).toBeVisible();
+        await expect(page.locator("#outputarealeft > div")).toHaveCount(1);
+        await expect(page.locator("#results-error")).toBeEmpty();
+    });
+
+    test("keeps the best play, without the gain line, when the calculation fails", async ({ page }) => {
+        await page.route(isCalculator, (route) => route.abort());
+        await openCalculator(page);
+
+        await fillHand(page, FUSION_ONLY);
+
+        await expect(page.locator("#chain-output .chain-best")).toBeVisible();
+        await expect(page.locator("#chain-output .chain-gain")).toHaveCount(0);
+        await expect(page.locator("#results-error").getByRole("alert")).toHaveText(TEXT.resultsFailed);
     });
 });
 
@@ -745,8 +958,6 @@ test.describe("in English", () => {
         await page.route(isChainSearch, chainSearchTruncated(true));
         await openCalculator(page);
         await fillHand(page, CHAIN_HAND);
-
-        await page.locator("#chainBtn").click();
 
         const chain = page.locator("#chain-output .chain-entry");
         await expect(chain.locator(".chain-step > p")).toHaveText("Step 1");

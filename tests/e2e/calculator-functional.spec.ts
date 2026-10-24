@@ -57,7 +57,7 @@ test("reset keeps current slot count", async ({ page }) => {
     await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS + 1);
 });
 
-test("chain search finds a result for a known fusable pair", async ({ page }) => {
+test("the chain is searched by itself for a known fusable pair", async ({ page }) => {
     await page.goto("/calculator");
     const hand1 = page.locator(".hand-slot").nth(0).locator("input");
     const hand2 = page.locator(".hand-slot").nth(1).locator("input");
@@ -65,12 +65,19 @@ test("chain search finds a result for a known fusable pair", async ({ page }) =>
     await hand1.dispatchEvent("change");
     await hand2.fill("Mushroom Man");
     await hand2.dispatchEvent("change");
-    await page.locator("#chainBtn").click();
-    await expect(page.locator("#chain-output")).not.toBeEmpty({ timeout: 5000 });
+    await expect(page.locator("#chain-output .chain-best")).toBeVisible({ timeout: 5000 });
+    await expect(page.locator("#chain-output")).toContainText("Queen of Autumn Leaves");
 });
 
-test("chain search shows no-result message for empty hand", async ({ page }) => {
+test("the chain section stays hidden and nothing is searched for an empty hand", async ({ page }) => {
+    const chainRequests: string[] = [];
+    page.on("request", (request) => {
+        if (new URL(request.url()).pathname === "/api/chain-search") chainRequests.push(request.url());
+    });
     await page.goto("/calculator");
-    await page.locator("#chainBtn").click();
-    await expect(page.locator("#chain-output")).not.toBeEmpty({ timeout: 3000 });
+    await expect(page.locator("#results-status")).not.toBeEmpty();
+    await expect(page.locator("#chain-section")).toBeHidden();
+    await expect(page.locator("#chain-output")).toBeEmpty();
+    await expect(page.locator("#chainBtn")).toBeHidden();
+    expect(chainRequests).toHaveLength(0);
 });

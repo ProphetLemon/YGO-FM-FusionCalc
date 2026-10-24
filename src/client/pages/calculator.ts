@@ -1,6 +1,12 @@
 import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
-import { renderChain, renderEquip, renderPair, renderRitual } from "../components/fusion-card.js";
+import {
+    renderBestChain,
+    renderEquip,
+    renderOtherChains,
+    renderPair,
+    renderRitual,
+} from "../components/fusion-card.js";
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
 import type { CalculatorResponse, CardSummary, RitualExpanded } from "../../shared/types.js";
 import { MAX_HAND_SIZE } from "../../shared/limits.js";
@@ -56,6 +62,7 @@ function mountCalculatorPage(): void {
     const answerColumn = qs<HTMLElement>("#answer-column");
     const indexError = qs<HTMLElement>("#index-error");
     const indexRetryBtn = qs<HTMLButtonElement>("#indexRetryBtn");
+    const chainSection = qs<HTMLElement>("#chain-section");
     const chainBtn = qs<HTMLButtonElement>("#chainBtn");
     const chainLoading = qs<HTMLElement>("#chain-loading");
     const chainOutput = qs<HTMLElement>("#chain-output");
@@ -72,6 +79,7 @@ function mountCalculatorPage(): void {
         !answerColumn ||
         !indexError ||
         !indexRetryBtn ||
+        !chainSection ||
         !chainBtn ||
         !chainLoading ||
         !chainOutput
@@ -145,6 +153,37 @@ function mountCalculatorPage(): void {
         chainLatest.cancel();
         clear(chainOutput);
         chainLoading.classList.add("hidden");
+        chainBtn.classList.add("hidden");
+        setBusy(chainBtn, false);
+    };
+
+    // The best play needs the best single fusion of the results to say how much better it is. What the
+    // calculation of the hand shown settled with (null when it failed) is kept for the retry of the chain.
+    let calculation: Promise<CalculatorResponse | null> = Promise.resolve(null);
+
+    // The chain is searched together with the results and, as the answer, waits for them to settle (not to
+    // succeed): a failed calculation only costs the gain line. One failing never hides the other.
+    const runChainSearch = async (handIds: number[]): Promise<void> => {
+        const run = chainLatest.begin();
+        clear(chainOutput);
+        chainLoading.textContent = t("calculator.chain.loading");
+        chainLoading.classList.remove("hidden");
+        setBusy(chainBtn, true);
+        try {
+            const [res, calculated] = await Promise.all([chainSearch(handIds, run.signal), calculation]);
+            if (!run.isCurrent()) return;
+            if (res.truncated) appendNote(chainOutput, t("calculator.chain.truncated"));
+            const [best, ...others] = res.chains;
+            if (best === undefined) chainOutput.append(t("calculator.chain.no-result"));
+            else chainOutput.appendChild(renderBestChain(best, bestSingleFusion(calculated)));
+            if (others.length > 0) chainOutput.appendChild(renderOtherChains(others));
+            chainBtn.classList.add("hidden");
+        } catch (err) {
+            if (!run.isCurrent()) return;
+            appendAlert(chainOutput, describeChainError(err), ALERT_CLASS);
+            chainBtn.classList.remove("hidden");
+        }
+        chainLoading.classList.add("hidden");
         setBusy(chainBtn, false);
     };
 
@@ -158,14 +197,18 @@ function mountCalculatorPage(): void {
         const run = refreshLatest.begin();
         clearResults();
         setHasAnswer(handIds.length >= 2);
+        chainSection.classList.toggle("hidden", handIds.length < 2);
         if (handIds.length < 2) {
             showHint();
             return;
         }
         setStatus(t("calculator.results.loading"));
+        const calculating = calculate(handIds, run.signal);
+        calculation = calculating.catch(() => null);
+        void runChainSearch(handIds);
         let result: CalculatorResponse;
         try {
-            result = await calculate(handIds, run.signal);
+            result = await calculating;
         } catch {
             if (!run.isCurrent()) return;
             shownKey = null;
@@ -409,38 +452,13 @@ function mountCalculatorPage(): void {
         updateSlotControls();
     };
 
-    // One request at a time: the button is disabled while it is in flight.
-    const runChainSearch = async (): Promise<void> => {
-        resetChain();
-        const handIds = currentHandIds();
-        if (handIds.length < 2) {
-            chainOutput.textContent = t("calculator.chain.no-result");
-            return;
-        }
-        const run = chainLatest.begin();
-        chainLoading.textContent = t("calculator.chain.loading");
-        chainLoading.classList.remove("hidden");
-        setBusy(chainBtn, true);
-        try {
-            const res = await chainSearch(handIds, run.signal);
-            if (!run.isCurrent()) return;
-            if (res.truncated) appendNote(chainOutput, t("calculator.chain.truncated"));
-            if (res.chains.length === 0) chainOutput.append(t("calculator.chain.no-result"));
-            for (const chain of res.chains) chainOutput.appendChild(renderChain(chain));
-        } catch (err) {
-            if (!run.isCurrent()) return;
-            appendAlert(chainOutput, describeChainError(err), ALERT_CLASS);
-        }
-        chainLoading.classList.add("hidden");
-        setBusy(chainBtn, false);
-    };
-
     addBtn.addEventListener("click", () => {
         addSlot();
         persist();
     });
     indexRetryBtn.addEventListener("click", () => void loadIndex());
-    chainBtn.addEventListener("click", () => void runChainSearch());
+    // Only after a chain error: the results are not asked for again.
+    chainBtn.addEventListener("click", () => void runChainSearch(currentHandIds()));
 
     resetBtn?.addEventListener("click", () => {
         refreshLatest.cancel();
@@ -452,6 +470,7 @@ function mountCalculatorPage(): void {
         }
         clearResults();
         setHasAnswer(false);
+        chainSection.classList.add("hidden");
         showHint();
         resetChain();
         persist();
@@ -488,6 +507,11 @@ function setBusy(button: HTMLButtonElement, busy: boolean): void {
     button.disabled = busy;
     if (busy) button.setAttribute("aria-busy", "true");
     else button.removeAttribute("aria-busy");
+}
+
+// The first fusion that makes a monster: the results come sorted by the ATK of what they make.
+function bestSingleFusion(result: CalculatorResponse | null): CardSummary | null {
+    return result?.fusions.find((fusion) => fusion.result.isMonster)?.result ?? null;
 }
 
 function describeChainError(err: unknown): string {
