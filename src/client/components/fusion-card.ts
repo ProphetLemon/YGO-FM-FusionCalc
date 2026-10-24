@@ -18,8 +18,8 @@ interface PairWithOptionalResult {
 // How the API names the Equip card type (`cardTypes` in types-and-stars.json).
 const EQUIP_TYPE_NAME = "Equip";
 
-const ENTRY_CLASS =
-    "block rounded-lg border border-black bg-white text-fm-primary shadow-sm p-4 mb-3 max-w-xs";
+// A pair, an equip or a ritual: a raised Workbench plate with square corners.
+const ENTRY_CLASS = "block raise text-wb-ink p-3 mb-3 max-w-xs";
 const FINAL_CLASS =
     "chain-final rounded-lg border-2 border-amber-500 bg-amber-50 text-fm-primary shadow-sm p-4 max-w-xs";
 const BEST_FINAL_CLASS =
@@ -35,7 +35,9 @@ export function renderPair(entry: FusionExpanded | EquipExpanded | ResultExpande
     div.appendChild(makeCardLine(t("card.label.input"), data.card1));
     div.appendChild(makeCardLine(t("card.label.input"), data.card2));
     if (data.result) {
-        div.appendChild(makeCardLine(t("card.label.result"), data.result, describeResult(data.result)));
+        div.appendChild(
+            makeCardLine(t("card.label.result"), data.result, describeResult(data.result), "fusion")
+        );
     }
     return div;
 }
@@ -216,11 +218,40 @@ function describeResult(card: CardSummary): string {
         : `${card.name} [${card.typeName}]`;
 }
 
-function makeCardLine(label: string, card: CardSummary, overrideText?: string): HTMLElement {
-    const row = document.createElement("div");
-    row.className = "flex items-center gap-2 mb-2";
+// The frame colour of a card tile (D7): a card a fusion made is `fusion`; otherwise a monster, an Equip or
+// any other spell-like card gets its own.
+type CardKind = "monster" | "fusion" | "equip" | "magic";
 
-    row.appendChild(createCardImg(card.name, card.imageCode, "w-10 h-14 flex-shrink-0", { compact: true }));
+// Literal strings, so Tailwind sees every class. The frame is a ring, which takes no room in the layout.
+const FRAME_CLASS: Record<CardKind, string> = {
+    monster: "bg-card-monster",
+    fusion: "bg-card-fusion",
+    equip: "bg-card-equip",
+    magic: "bg-card-magic",
+};
+
+function cardKind(card: CardSummary): CardKind {
+    if (card.isMonster) return "monster";
+    return isEquipCard(card) ? "equip" : "magic";
+}
+
+function makeCardLine(
+    label: string,
+    card: CardSummary,
+    overrideText?: string,
+    kind: CardKind = cardKind(card)
+): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "flex items-center gap-3 mb-2";
+
+    row.appendChild(
+        createCardImg(
+            card.name,
+            card.imageCode,
+            `w-10 h-14 flex-shrink-0 m-0.5 ring-2 ring-wb-ink ${FRAME_CLASS[kind]}`,
+            { compact: true }
+        )
+    );
 
     const p = document.createElement("p");
     p.className = "text-sm min-w-0";

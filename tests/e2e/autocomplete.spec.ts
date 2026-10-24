@@ -42,9 +42,9 @@ function options(page: Page): Locator {
     return page.getByRole("option");
 }
 
-// The suggestion under the keyboard highlight, the only one drawn in the primary colour.
+// The suggestion under the keyboard highlight, the only one drawn on the ink background.
 function highlighted(page: Page): Locator {
-    return page.locator("[role='option'].bg-fm-primary");
+    return page.locator("[role='option'].bg-wb-ink");
 }
 
 function slotInput(page: Page, index: number): Locator {

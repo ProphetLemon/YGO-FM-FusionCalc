@@ -9,9 +9,9 @@ export interface AutocompleteOptions {
 const DEFAULT_LIMIT = 8;
 
 const LIST_CLASSNAME =
-    "absolute z-20 left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-white text-fm-primary rounded shadow-lg border border-fm-primary/30 hidden";
-const ITEM_CLASSNAME = "px-3 py-1 cursor-pointer hover:bg-fm-search-bg";
-const ITEM_ACTIVE_CLASSNAME = "px-3 py-1 cursor-pointer bg-fm-primary text-white";
+    "absolute z-20 left-0 right-0 mt-1 max-h-64 overflow-y-auto raise text-wb-ink shadow-[2px_2px_0_var(--color-wb-ink)] hidden";
+const ITEM_CLASSNAME = "px-3 py-2 cursor-pointer hover:bg-wb-plate-hover";
+const ITEM_ACTIVE_CLASSNAME = "px-3 py-2 cursor-pointer bg-wb-ink text-white";
 
 export class Autocomplete {
     private input: HTMLInputElement;

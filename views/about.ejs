@@ -1,16 +1,35 @@
-<div class="container mx-auto px-4 py-12 max-w-3xl">
-    <section class="mb-12">
-        <h2 class="font-display text-3xl md:text-4xl text-center mb-8 uppercase tracking-wide"><%= t('about.title') %></h2>
-        <p class="mb-4 font-body text-lg"><%= t('about.p1') %></p>
-        <p class="mb-4 font-body text-lg"><%= t('about.p2') %></p>
-        <p class="font-body text-lg"><%= t('about.p3') %></p>
-    </section>
+<div class="max-w-[1380px] mx-auto px-6 pt-5 pb-10">
+    <div class="flex flex-wrap items-baseline gap-x-5 gap-y-1 mb-4">
+        <h1 class="m-0 text-[26px] min-[701px]:text-[32px] leading-[1.1]"><%= t('about.title') %></h1>
+    </div>
 
-    <section>
-        <h2 class="font-display text-3xl md:text-4xl text-center mb-8 uppercase tracking-wide"><%= t('about.thanks.title') %></h2>
-        <p class="font-body text-lg">
-            <%= t('about.thanks.solumin') %>
-            <a href="https://github.com/Solumin/YGO-FM-FusionCalc" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-70">GitHub</a>.
-        </p>
-    </section>
+    <div class="grid gap-5 max-w-3xl">
+        <section class="win">
+            <div class="win-bar win-bar-blue">
+                <h2 class="win-title"><%= t('about.title') %></h2>
+            </div>
+            <div class="win-body text-lg">
+                <p class="mt-0 mb-4"><%= t('about.p1') %></p>
+                <p class="mt-0 mb-4"><%= t('about.p2') %></p>
+                <p class="m-0"><%= t('about.p3') %></p>
+            </div>
+        </section>
+
+        <section class="win">
+            <div class="win-bar win-bar-grey">
+                <h2 class="win-title"><%= t('about.thanks.title') %></h2>
+            </div>
+            <div class="win-body text-lg">
+                <p class="m-0">
+                    <%= t('about.thanks.solumin') %>
+                    <a
+                        href="https://github.com/Solumin/YGO-FM-FusionCalc"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="font-bold text-wb-blue underline underline-offset-2 hover:text-wb-ink"
+                    >GitHub</a>.
+                </p>
+            </div>
+        </section>
+    </div>
 </div>

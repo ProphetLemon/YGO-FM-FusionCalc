@@ -24,6 +24,7 @@
     --color-wb-disabled-text: #5c5e66;
     --color-wb-empty: #c2c2bc;
     --color-wb-art: #2b2e36;
+    --color-wb-art-text: #e4e7f2;
     --color-wb-rule: #b3b3ad;
     --color-wb-vent: #8e8e88;
     --color-wb-best: #ddf1e3;
@@ -32,28 +33,20 @@
     --color-card-equip: #f0a29b;
     --color-card-magic: #efa8cb;
 
-    /* Legacy tokens still used by page content until T2/T3 restyle it. */
+    /* Legacy token, still used by the calculator until T3 restyles it. */
     --color-fm-primary: rgb(30 35 55);
-    --color-fm-search-bg: rgb(244 244 245);
-    --color-fm-calculator-bg: rgb(255 134 82);
-    --color-fm-calculator-fg: rgb(122 10 0);
-
-    --animate-hero-slide: hero-slide 1s 1;
-}
-
-@keyframes hero-slide {
-    0% {
-        transform: translateX(-50%);
-        opacity: 0;
-    }
-    100% {
-        transform: translateX(0%);
-        opacity: 1;
-    }
 }
 
 /* Focus: one visible style on every control; white inside coloured header bars. */
 @layer base {
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        font-family: var(--font-display);
+    }
     :focus-visible {
         outline: 3px solid var(--color-wb-ink);
         outline-offset: 2px;
@@ -172,8 +165,17 @@
     background: repeating-linear-gradient(90deg, var(--color-wb-vent) 0 3px, transparent 3px 9px);
 }
 
+/* Art well of a card thumbnail: dark with a faint scanline. */
+@utility wb-art {
+    background: var(--color-wb-art)
+        repeating-linear-gradient(0deg, rgb(255 255 255 / 0.07) 0 1px, transparent 1px 3px);
+}
+
 @utility cover-glow {
     transition: box-shadow 200ms ease;
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
     &:hover {
         box-shadow:
             0 1px 0 #00a8e7,

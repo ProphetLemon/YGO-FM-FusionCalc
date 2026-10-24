@@ -3,10 +3,9 @@ const CDN = "https://images.ygoprodeck.com/images/cards";
 // A code that names no file: empty, or all zeros, the password of a card that has none.
 const NO_CODE = /^0*$/;
 
-const PLACEHOLDER_CLASS =
-    "card-placeholder w-full h-full overflow-hidden rounded border border-fm-primary/20 bg-fm-primary/10";
+const PLACEHOLDER_CLASS = "card-placeholder wb-art w-full h-full overflow-hidden";
 const NAMED_CLASS =
-    "flex items-center justify-center p-2 text-center text-xs sm:text-sm leading-tight text-fm-primary font-body";
+    "flex items-center justify-center p-2 text-center text-xs sm:text-sm leading-tight text-wb-art-text font-body";
 // The width limit lets a long word wrap, and five lines are the most a hand slot on a phone has room for.
 const NAME_CLASS = "min-w-0 max-w-full break-words line-clamp-5";
 

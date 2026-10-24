@@ -40,15 +40,16 @@ async function mountSearchPage(): Promise<void> {
     const showError = (message: string): void => {
         clear(searchMsg);
         const div = document.createElement("div");
-        div.className = "block rounded p-3 bg-red-100 text-red-800 border border-red-300";
+        div.className = "sink p-3 font-bold text-wb-red";
         div.setAttribute("role", "alert");
         div.textContent = message;
         searchMsg.appendChild(div);
     };
 
-    const renderHeader = (where: HTMLElement, label: string): void => {
+    // The result list is itself the panel, so its entries stay direct children; the header is its title bar.
+    const renderHeader = (where: HTMLElement, label: string, barClass: string): void => {
         const h2 = document.createElement("h2");
-        h2.className = "text-center my-4 font-display text-2xl";
+        h2.className = `win-bar win-title ${barClass}`;
         h2.textContent = label;
         where.appendChild(h2);
     };
@@ -68,9 +69,9 @@ async function mountSearchPage(): Promise<void> {
         outputCard.appendChild(renderCardSummary(card));
         const data = await getFusions(card.id);
         if (!data) return;
-        renderHeader(outputLeft, t("search.results.fusions"));
+        renderHeader(outputLeft, t("search.results.fusions"), "win-bar-green");
         for (const fusion of data.fusions) outputLeft.appendChild(renderPair(fusion));
-        renderHeader(outputRight, t("search.results.equips"));
+        renderHeader(outputRight, t("search.results.equips"), "win-bar-red");
         for (const equip of data.equips) outputRight.appendChild(renderEquip(equip));
     };
 
@@ -89,7 +90,7 @@ async function mountSearchPage(): Promise<void> {
         outputCard.appendChild(renderCardSummary(card));
         const results = await getResults(card.id);
         if (!results || results.length === 0) return;
-        renderHeader(outputLeft, t("search.results.fusions"));
+        renderHeader(outputLeft, t("search.results.fusions"), "win-bar-green");
         for (const entry of results) outputLeft.appendChild(renderPair(entry));
     };
 

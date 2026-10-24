@@ -4,18 +4,26 @@ import { t } from "../lib/i18n.js";
 
 export function renderCardSummary(card: CardSummary): HTMLElement {
     const wrapper = document.createElement("div");
-    wrapper.className =
-        "block rounded-lg border border-fm-primary/30 bg-white text-fm-primary shadow-sm p-4 max-w-md";
+    wrapper.className = "win max-w-md";
 
+    const bar = document.createElement("div");
+    bar.className = "win-bar win-bar-grey";
     const title = document.createElement("h5");
-    title.className = "font-display text-lg mb-3";
+    title.className = "win-title";
     title.textContent = card.name;
-    wrapper.appendChild(title);
+    bar.appendChild(title);
+    wrapper.appendChild(bar);
 
     const body = document.createElement("div");
-    body.className = "flex gap-4";
+    body.className = "win-body flex gap-4";
 
-    body.appendChild(createCardImg(card.name, card.imageCode, "w-40 h-56 flex-shrink-0"));
+    body.appendChild(
+        createCardImg(
+            card.name,
+            card.imageCode,
+            `w-40 h-56 flex-shrink-0 ring-2 ring-wb-ink ${summaryFrame(card)}`
+        )
+    );
 
     const stats = document.createElement("div");
     stats.className = "flex-1 min-w-0";
@@ -36,6 +44,12 @@ export function renderCardSummary(card: CardSummary): HTMLElement {
     wrapper.appendChild(body);
 
     return wrapper;
+}
+
+// The frame colour by kind (a searched card is never a fusion result): Equip, other non-monsters, monsters.
+function summaryFrame(card: CardSummary): string {
+    if (card.isMonster) return "bg-card-monster";
+    return card.typeName === "Equip" ? "bg-card-equip" : "bg-card-magic";
 }
 
 function makeRow(label: string, value: string): HTMLParagraphElement {
