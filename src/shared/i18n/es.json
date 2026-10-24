@@ -43,6 +43,7 @@
     "search.error.not-found": "No se ha encontrado la carta «{{name}}»",
     "calculator.hand.title": "Tu mano",
     "calculator.hand.max-reached": "Has alcanzado el máximo de {{max}} cartas en la mano.",
+    "calculator.hand.count": "{{count}} de {{max}} casillas",
     "calculator.btn.reset": "Reiniciar",
     "calculator.btn.add-slot": "Añadir carta",
     "calculator.btn.remove-slot": "Eliminar ranura",

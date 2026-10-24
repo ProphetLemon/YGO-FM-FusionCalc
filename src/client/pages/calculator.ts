@@ -52,6 +52,8 @@ function mountCalculatorPage(): void {
     const resultsError = qs<HTMLElement>("#results-error");
     const resultsStatus = qs<HTMLElement>("#results-status");
     const addSlotHint = qs<HTMLElement>("#add-slot-hint");
+    const handCount = qs<HTMLElement>("#hand-count");
+    const answerColumn = qs<HTMLElement>("#answer-column");
     const indexError = qs<HTMLElement>("#index-error");
     const indexRetryBtn = qs<HTMLButtonElement>("#indexRetryBtn");
     const chainBtn = qs<HTMLButtonElement>("#chainBtn");
@@ -66,6 +68,8 @@ function mountCalculatorPage(): void {
         !resultsError ||
         !resultsStatus ||
         !addSlotHint ||
+        !handCount ||
+        !answerColumn ||
         !indexError ||
         !indexRetryBtn ||
         !chainBtn ||
@@ -121,6 +125,11 @@ function mountCalculatorPage(): void {
 
     const showHint = (): void => setStatus(t("calculator.results.hint"));
 
+    // On a phone the answer column moves above the hand only while it has something to show.
+    const setHasAnswer = (hasAnswer: boolean): void => {
+        answerColumn.dataset.hasAnswer = String(hasAnswer);
+    };
+
     const renderResults = (result: CalculatorResponse): void => {
         appendHeader(outputLeft, t("search.results.fusions"));
         for (const fusion of result.fusions) outputLeft.appendChild(renderPair(fusion));
@@ -148,6 +157,7 @@ function mountCalculatorPage(): void {
         resetChain();
         const run = refreshLatest.begin();
         clearResults();
+        setHasAnswer(handIds.length >= 2);
         if (handIds.length < 2) {
             showHint();
             return;
@@ -197,6 +207,7 @@ function mountCalculatorPage(): void {
         }
         const addable = canAddSlot(slots.length);
         addBtn.disabled = !addable;
+        handCount.textContent = t("calculator.hand.count", { count: slots.length, max: MAX_HAND_SIZE });
         addSlotHint.textContent = addable ? "" : t("calculator.hand.max-reached", { max: MAX_HAND_SIZE });
     };
 
@@ -440,6 +451,7 @@ function mountCalculatorPage(): void {
             setSlotCard(slot, null);
         }
         clearResults();
+        setHasAnswer(false);
         showHint();
         resetChain();
         persist();

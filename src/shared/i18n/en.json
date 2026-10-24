@@ -43,6 +43,7 @@
     "search.error.not-found": "No card for {{name}} found",
     "calculator.hand.title": "Enter hand",
     "calculator.hand.max-reached": "You have reached the limit of {{max}} cards in your hand.",
+    "calculator.hand.count": "{{count}} of {{max}} slots",
     "calculator.btn.reset": "Reset all",
     "calculator.btn.add-slot": "Add card",
     "calculator.btn.remove-slot": "Remove slot",
