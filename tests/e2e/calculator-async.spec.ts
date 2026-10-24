@@ -71,10 +71,11 @@ async function openCalculator(page: Page): Promise<void> {
     await input.fill("");
 }
 
-// An empty block has no size and Playwright would call it hidden too, so also check it takes no space.
-async function expectRitualsHidden(block: Locator): Promise<void> {
-    await expect(block).toBeHidden();
-    await expect(block).toHaveCSS("display", "none");
+// With nothing to show the results panels are hidden as a whole: no size, no space.
+async function expectResultsHidden(page: Page): Promise<void> {
+    const panels = page.locator("#results-panels");
+    await expect(panels).toBeHidden();
+    await expect(panels).toHaveCSS("display", "none");
 }
 
 interface RequestLog {
@@ -185,9 +186,9 @@ test.describe("overlapping calculations", () => {
         for (const route of [...held].reverse()) await release(route);
         await settled(page, calculations);
 
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
-        await expect(page.locator("#outputarealeft > div")).toHaveCount(expected.fusions.length);
-        await expect(page.locator("#rituals-output h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
+        await expect(page.locator("#outputarealeft .fusion-row")).toHaveCount(expected.fusions.length);
+        await expect(page.locator("#rituals-title")).toBeVisible();
         await expect(page.locator("#rituals-output .ritual-entry")).toHaveCount(expected.rituals.length);
         await expect(page.locator("#results-error")).toBeEmpty();
     });
@@ -204,9 +205,9 @@ test.describe("overlapping calculations", () => {
         await fillHand(page, DANCE_HAND);
         await settled(page, calculations);
 
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
-        await expect(page.locator("#outputarealeft > div")).toHaveCount(expected.fusions.length);
-        await expect(page.locator("#rituals-output h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
+        await expect(page.locator("#outputarealeft .fusion-row")).toHaveCount(expected.fusions.length);
+        await expect(page.locator("#rituals-title")).toBeVisible();
         await expect(page.locator("#rituals-output .ritual-entry")).toHaveCount(expected.rituals.length);
         await expect(page.locator("#results-error")).toBeEmpty();
     });
@@ -221,7 +222,7 @@ test.describe("overlapping calculations", () => {
         await settled(page, calculations);
 
         expect(calculations.started).toHaveLength(1);
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
     });
 
     test("picking suggestions asks once per card and calculates once", async ({ page }) => {
@@ -242,7 +243,7 @@ test.describe("overlapping calculations", () => {
 
         expect(lookups.started).toHaveLength(FUSION_PAIR.length);
         expect(calculations.started).toHaveLength(1);
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(page.locator("#outputarealeft")).toContainText(MYSTICAL_ELF);
     });
 
@@ -260,7 +261,7 @@ test.describe("overlapping calculations", () => {
 
         await expect(page.locator("#outputarealeft")).toBeEmpty();
         await expect(page.locator("#outputarearight")).toBeEmpty();
-        await expectRitualsHidden(page.locator("#rituals-output"));
+        await expectResultsHidden(page);
         await expect(page.locator("#results-error")).toBeEmpty();
     });
 });
@@ -269,7 +270,7 @@ test.describe("a failed calculation", () => {
     test("shows an alert instead of the results it replaced", async ({ page }) => {
         await openCalculator(page);
         await fillHand(page, FUSION_PAIR);
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
 
         await page.route(isCalculator, (route) => route.abort());
         await fillSlot(page, 2, "Blue-eyes White Dragon");
@@ -278,7 +279,7 @@ test.describe("a failed calculation", () => {
         await expect(alert).toHaveText(TEXT.resultsFailed);
         await expect(page.locator("#outputarealeft")).toBeEmpty();
         await expect(page.locator("#outputarearight")).toBeEmpty();
-        await expectRitualsHidden(page.locator("#rituals-output"));
+        await expectResultsHidden(page);
     });
 
     test("is tried again on the next change of the same hand", async ({ page }) => {
@@ -292,7 +293,7 @@ test.describe("a failed calculation", () => {
         await page.unroute(isCalculator);
         await slotAt(page, 2).locator("input").dispatchEvent("change");
 
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(alert).toBeHidden();
     });
 
@@ -693,7 +694,7 @@ test.describe("the results and the chain are independent", () => {
         await expect(page.locator("#chain-loading")).toBeVisible();
         for (const route of heldCalculations) await release(route);
         await expect(page.locator("#chain-output .chain-best")).toBeVisible();
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
     });
 
     test("show the results when the chain search never answers", async ({ page }) => {
@@ -702,7 +703,7 @@ test.describe("the results and the chain are independent", () => {
 
         await fillHand(page, FUSION_PAIR);
 
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(page.locator("#chain-loading")).toBeVisible();
     });
 });

@@ -12,6 +12,9 @@ const PSYCHO_PUPPET = "Psycho-Puppet";
 const RED_EYES_B_DRAGON = "Red-eyes B. Dragon";
 const METEOR_DRAGON = "Meteor Dragon";
 const METEOR_B_DRAGON = "Meteor B. Dragon";
+const MYSTICAL_ELF = "Mystical Elf";
+const MUSHROOM_MAN = "Mushroom Man";
+const QUEEN_OF_AUTUMN_LEAVES = "Queen of Autumn Leaves";
 const CONTRUCT_OF_MASK = "Contruct of Mask";
 const MASK_OF_SHINE_AND_DARK = "Mask of Shine & Dark";
 // The Ritual card and the three materials of the recipe that makes Mask of Shine & Dark.
@@ -41,9 +44,10 @@ const MASK_MATERIAL_FILES = [FILE.maskOfDarkness, FILE.maskedClown, FILE.maskedS
 // answer with a 404.
 const REAL_FILE_NAME = /^[1-9]\d*\.jpg$/;
 
-// What a compact box measures (w-10 h-14) and what the large one of the search page does (w-40 h-56).
-const THUMBNAIL_SIZE = { width: 40, height: 56 };
-const RESULT_THUMBNAIL_SIZE = { width: 64, height: 96 };
+// The art well of the card tiles of the results (D7): xs in the fusions table, s in the rituals.
+const XS_ART_SIZE = { width: 46, height: 74 };
+const S_ART_WIDTH = 76;
+// What the large box of the search page measures (w-40 h-56).
 const SUMMARY_SIZE = { width: 160, height: 224 };
 
 // One transparent pixel: what the CDN answers for a file it has.
@@ -267,44 +271,44 @@ test.describe("the artwork of a card in a hand slot", () => {
 });
 
 test.describe("the thumbnails beside a label", () => {
-    test("a fusion result with no artwork is a small plain box, and nothing is asked for it", async ({
+    test("a fusion result with no artwork is a plain box in its xs tile, and nothing is asked for it", async ({
         page,
     }) => {
         const asked = await mockCdn(page, only(FILE.redEyesBDragon, FILE.meteorDragon));
         await page.goto("/calculator");
         await fillHand(page, [RED_EYES_B_DRAGON, METEOR_DRAGON]);
 
-        const entry = page.locator("#outputarealeft > div");
+        const entry = page.locator("#outputarealeft .fusion-row");
         await expect(entry).toHaveCount(1);
         await entry.scrollIntoViewIfNeeded();
-        const images = entry.locator("img");
-        await expect(images).toHaveCount(2);
-        await expectLoaded(images.first());
-        await expectLoaded(images.last());
+        // The inputs are text chips: the row draws the artwork of its result only, and this one has none.
+        await expect(entry.locator("img")).toHaveCount(0);
 
         const box = shownPlaceholders(entry);
         await expect(box).toHaveCount(1);
         await expect(box).toHaveText("");
         await expect(box).toHaveAttribute("aria-label", METEOR_B_DRAGON);
         await expect(entry.getByRole("img", { name: METEOR_B_DRAGON, exact: true })).toHaveCount(1);
-        // The result line carries the larger thumbnail of a calculator fusion.
-        expect(await boxOf(box)).toMatchObject(RESULT_THUMBNAIL_SIZE);
+        // The art well of the xs tile (56px wide, 2:3).
+        expect(await boxOf(box)).toMatchObject(XS_ART_SIZE);
         await expectAsked(page, asked, [FILE.meteorDragon, FILE.redEyesBDragon]);
     });
 
     test("a thumbnail with artwork shows it and hides its placeholder", async ({ page }) => {
-        await mockCdn(page, only(FILE.redEyesBDragon, FILE.meteorDragon));
+        await mockCdn(page, anyFile);
         await page.goto("/calculator");
-        await fillHand(page, [RED_EYES_B_DRAGON, METEOR_DRAGON]);
+        await fillHand(page, [MYSTICAL_ELF, MUSHROOM_MAN]);
 
-        const entry = page.locator("#outputarealeft > div");
+        const entry = page.locator("#outputarealeft .fusion-row");
+        await expect(entry).toHaveCount(1);
         await entry.scrollIntoViewIfNeeded();
-        const first = entry.locator("img").first();
-        await expectLoaded(first);
-        await expect(first).toHaveAttribute("src", `${CDN}/${FILE.redEyesBDragon}`);
-        await expect(first).toHaveAttribute("alt", RED_EYES_B_DRAGON);
+        const image = entry.locator("img");
+        await expect(image).toHaveCount(1);
+        await expectLoaded(image);
+        await expect(image).toHaveAttribute("src", /\/images\/cards\/[1-9]\d*\.jpg$/);
+        await expect(image).toHaveAttribute("alt", QUEEN_OF_AUTUMN_LEAVES);
         await expect(
-            first.locator("xpath=following-sibling::*[contains(@class,'card-placeholder')]")
+            image.locator("xpath=following-sibling::*[contains(@class,'card-placeholder')]")
         ).toHaveCSS("display", "none");
     });
 
@@ -324,7 +328,10 @@ test.describe("the thumbnails beside a label", () => {
         await expect(boxes.nth(0)).toHaveAttribute("aria-label", CONTRUCT_OF_MASK);
         await expect(boxes.nth(1)).toHaveAttribute("aria-label", MASK_OF_SHINE_AND_DARK);
         for (const box of [boxes.nth(0), boxes.nth(1)]) {
-            expect(await boxOf(box)).toMatchObject(THUMBNAIL_SIZE);
+            // The box fills the art well of its s tile, which is 76px wide; its height follows the name strip.
+            const well = await boxOf(box.locator("xpath=.."));
+            expect(await boxOf(box)).toMatchObject({ width: S_ART_WIDTH, height: well.height });
+            expect(well.height).toBeGreaterThan(40);
         }
         // Three materials show their picture; the Ritual card keeps one that failed, hidden, and the result
         // never had one.

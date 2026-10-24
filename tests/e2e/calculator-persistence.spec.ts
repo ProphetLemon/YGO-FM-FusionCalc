@@ -325,7 +325,7 @@ test.describe("restoring the hand", () => {
         await page.reload();
 
         await expectHand(page, [MYSTICAL_ELF, MUSHROOM_MAN, null, null, null]);
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(results(page)).toContainText(FUSION_RESULT);
         await expect(page.locator("#results-status")).toBeEmpty();
     });
@@ -440,20 +440,24 @@ test.describe("restoring the hand", () => {
 
         await expect(page.locator("html")).toHaveAttribute("lang", "en");
         await expectHand(page, [MYSTICAL_ELF, MUSHROOM_MAN, null, null, null]);
-        await expect(page.locator("#outputarealeft > div p")).toHaveText([
-            `Result: ${FUSION_RESULT} (1800/1500)`,
-            `Input: ${MYSTICAL_ELF}`,
-            `Input: ${MUSHROOM_MAN}`,
+        await expect(page.getByRole("heading", { name: "Fusions", level: 2, exact: true })).toBeVisible();
+        await expect(page.locator("#outputarealeft .fusion-name")).toContainText(FUSION_RESULT);
+        await expect(page.locator("#outputarealeft [role=columnheader]")).toHaveText([
+            "Result",
+            "ATK / DEF",
+            "Input",
         ]);
 
         await page.getByRole("button", { name: "Español" }).click();
 
         await expect(page.locator("html")).toHaveAttribute("lang", "es");
         await expectHand(page, [MYSTICAL_ELF, MUSHROOM_MAN, null, null, null]);
-        await expect(page.locator("#outputarealeft > div p")).toHaveText([
-            `Resultado: ${FUSION_RESULT} (1800/1500)`,
-            `Carta: ${MYSTICAL_ELF}`,
-            `Carta: ${MUSHROOM_MAN}`,
+        await expect(page.getByRole("heading", { name: "Fusiones", level: 2, exact: true })).toBeVisible();
+        await expect(page.locator("#outputarealeft .fusion-name")).toContainText(FUSION_RESULT);
+        await expect(page.locator("#outputarealeft [role=columnheader]")).toHaveText([
+            "Resultado",
+            "ATK / DEF",
+            "Entrada",
         ]);
     });
 

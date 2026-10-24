@@ -34,16 +34,49 @@ function waitForCalculation(page: Page, handSize: number): Promise<Response> {
     });
 }
 
-// An empty block has no size and Playwright would call it hidden too, so also check it takes no space.
-async function expectRitualsHidden(block: Locator): Promise<void> {
-    await expect(block).toBeHidden();
-    await expect(block).toHaveCSS("display", "none");
+const EMPTY_ES =
+    "Ninguno para esta mano. Un ritual aparece aquí cuando tienes la carta de ritual y sus tres materiales.";
+const EMPTY_EN =
+    "None for this hand. A ritual shows up here once you hold the ritual card and its three materials.";
+
+// The panel is part of the results: it shows whenever the hand has two cards, and says what a ritual needs
+// when there is none.
+async function expectEmptyPanel(page: Page, copy: string): Promise<void> {
+    await expect(page.locator("#rituals-title")).toBeVisible();
+    await expect(page.locator("#rituals-output > p")).toHaveText(copy);
+    await expect(page.locator("#rituals-output .ritual-entry")).toHaveCount(0);
+}
+
+const ES_CAPTIONS = ["Carta de ritual", "Material", "Material", "Material", "Resultado"];
+const EN_CAPTIONS = ["Ritual card", "Material", "Material", "Material", "Result"];
+
+// The entry draws five tiles, each with its caption: the ritual card, the three materials, the result (a
+// fusion-framed tile).
+async function expectRitualRow(block: Locator, captions: readonly string[]): Promise<void> {
+    const entry = block.locator(".ritual-entry").first();
+    await expect(entry.locator(".card-caption")).toHaveText(captions);
+    await expect(entry.locator(".card-tile-name")).toHaveText([
+        "Yamadron Ritual",
+        "Mountain Warrior",
+        "Koumori Dragon",
+        "Wings of Wicked Flame",
+        "Yamadron",
+    ]);
+    await expect(entry.locator(".card-tile").last()).toHaveAttribute("data-kind", "fusion");
+}
+
+// The empty copy in English: the same hand minus its ritual card.
+async function expectEmptyAfterReset(page: Page, copy: string): Promise<void> {
+    await page.locator("#resetBtn").click();
+    await fillHand(page, INCOMPLETE_HANDS[0][1]);
+    await expectEmptyPanel(page, copy);
 }
 
 test.describe("rituals block", () => {
-    test("is hidden on first load", async ({ page }) => {
+    test("is hidden with the other results on first load", async ({ page }) => {
         await page.goto("/calculator");
-        await expectRitualsHidden(page.locator("#rituals-output"));
+        await expect(page.locator("#results-panels")).toBeHidden();
+        await expect(page.locator("#rituals-output")).toBeEmpty();
     });
 
     test("lists a ritual when the hand has its card and three materials", async ({ page }) => {
@@ -51,14 +84,8 @@ test.describe("rituals block", () => {
         await fillHand(page, YAMADRON_HAND);
         const block = page.locator("#rituals-output");
         await expect(block).toBeVisible();
-        await expect(block.getByRole("heading", { name: "Rituales" })).toBeVisible();
-        await expect(block.locator(".ritual-entry").first().locator("p")).toHaveText([
-            "Carta de ritual: Yamadron Ritual",
-            "Material: Mountain Warrior",
-            "Material: Koumori Dragon",
-            "Material: Wings of Wicked Flame",
-            "Resultado: Yamadron (1600/1800)",
-        ]);
+        await expect(page.getByRole("heading", { name: "Rituales", level: 2, exact: true })).toBeVisible();
+        await expectRitualRow(block, ES_CAPTIONS);
     });
 
     test("draws artwork for the ritual card, the materials and the result", async ({ page }) => {
@@ -72,16 +99,16 @@ test.describe("rituals block", () => {
     });
 
     for (const [missing, names] of INCOMPLETE_HANDS) {
-        test(`stays hidden when the hand lacks ${missing}`, async ({ page }) => {
+        test(`shows the empty copy when the hand lacks ${missing}`, async ({ page }) => {
             await page.goto("/calculator");
             const calculated = waitForCalculation(page, names.length);
             await fillHand(page, names);
             await (await calculated).finished();
-            await expectRitualsHidden(page.locator("#rituals-output"));
+            await expectEmptyPanel(page, EMPTY_ES);
         });
     }
 
-    test("hides again when a card leaves the hand", async ({ page }) => {
+    test("shows the empty copy again when a card leaves the hand", async ({ page }) => {
         await page.goto("/calculator");
         await fillHand(page, YAMADRON_HAND);
         const block = page.locator("#rituals-output");
@@ -90,16 +117,17 @@ test.describe("rituals block", () => {
         const calculated = waitForCalculation(page, YAMADRON_HAND.length - 1);
         await lastSlot.locator(".clear-btn").click();
         await (await calculated).finished();
-        await expectRitualsHidden(block);
+        await expectEmptyPanel(page, EMPTY_ES);
     });
 
-    test("hides again on reset", async ({ page }) => {
+    test("goes with the other results on reset", async ({ page }) => {
         await page.goto("/calculator");
         await fillHand(page, YAMADRON_HAND);
         const block = page.locator("#rituals-output");
         await expect(block).toBeVisible();
         await page.locator("#resetBtn").click();
-        await expectRitualsHidden(block);
+        await expect(page.locator("#results-panels")).toBeHidden();
+        await expect(block).toBeEmpty();
     });
 
     test.describe("in English", () => {
@@ -109,14 +137,11 @@ test.describe("rituals block", () => {
             await page.goto("/calculator");
             await fillHand(page, YAMADRON_HAND);
             const block = page.locator("#rituals-output");
-            await expect(block.getByRole("heading", { name: "Rituals" })).toBeVisible();
-            await expect(block.locator(".ritual-entry").first().locator("p")).toHaveText([
-                "Ritual card: Yamadron Ritual",
-                "Material: Mountain Warrior",
-                "Material: Koumori Dragon",
-                "Material: Wings of Wicked Flame",
-                "Result: Yamadron (1600/1800)",
-            ]);
+            await expect(
+                page.getByRole("heading", { name: "Rituals", level: 2, exact: true })
+            ).toBeVisible();
+            await expectRitualRow(block, EN_CAPTIONS);
+            await expectEmptyAfterReset(page, EMPTY_EN);
         });
     });
 });

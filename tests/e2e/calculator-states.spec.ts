@@ -55,6 +55,9 @@ const TEXT = {
     loading: "Calculando resultados…",
     noFusions: "No hay fusiones posibles con esta mano.",
     noEquips: "No hay equipos posibles con esta mano.",
+    noRituals:
+        "Ninguno para esta mano. Un ritual aparece aquí cuando tienes la carta de ritual y sus tres materiales.",
+    resultsTitle: "Resultados",
     resultsFailed: "No se pudieron calcular los resultados. Inténtalo de nuevo.",
     truncated:
         "Búsqueda parcial: la mano tiene demasiadas combinaciones y solo se exploró una parte, así que puede haber una cadena mejor.",
@@ -110,10 +113,11 @@ async function addSlotsUpTo(page: Page, count: number): Promise<void> {
     while ((await page.locator(".hand-slot").count()) < count) await page.locator("#addSlotBtn").click();
 }
 
-// An empty block has no size and Playwright would call it hidden too, so also check it takes no space.
-async function expectRitualsHidden(block: Locator): Promise<void> {
-    await expect(block).toBeHidden();
-    await expect(block).toHaveCSS("display", "none");
+// With nothing to show the results panels are hidden as a whole: no size, no space.
+async function expectResultsHidden(page: Page): Promise<void> {
+    const panels = page.locator("#results-panels");
+    await expect(panels).toBeHidden();
+    await expect(panels).toHaveCSS("display", "none");
 }
 
 // Holds every matching request until the test lets it go, so the test decides when the answer comes.
@@ -221,6 +225,8 @@ test.describe("the hint", () => {
         await expect(statusRegion(page)).toHaveText(TEXT.hint);
         await expect(page.locator("#outputarealeft")).toBeEmpty();
         await expect(page.locator("#outputarearight")).toBeEmpty();
+        await expectResultsHidden(page);
+        await expect(page.getByRole("heading", { name: TEXT.resultsTitle, exact: true })).toBeVisible();
     });
 
     test("does not wait for the card index", async ({ page }) => {
@@ -248,14 +254,14 @@ test.describe("the hint", () => {
 
         await fillSlot(page, 1, MUSHROOM_MAN);
 
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(statusRegion(page)).toBeEmpty();
     });
 
     test("comes back when a card leaves the hand", async ({ page }) => {
         await openCalculator(page);
         await fillHand(page, FUSION_ONLY);
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
 
         await slotAt(page, 1).locator(".clear-btn").click();
 
@@ -266,7 +272,7 @@ test.describe("the hint", () => {
     test("comes back after a reset", async ({ page }) => {
         await openCalculator(page);
         await fillHand(page, FUSION_ONLY);
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(statusRegion(page)).toBeEmpty();
 
         await page.locator("#resetBtn").click();
@@ -287,7 +293,7 @@ test.describe("the loading text", () => {
         await expect(statusRegion(page)).toHaveText(TEXT.loading);
         await expect(page.locator("#outputarealeft")).toBeEmpty();
         for (const route of held) await release(route);
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(statusRegion(page)).toBeEmpty();
     });
 
@@ -330,12 +336,12 @@ test.describe("the loading text", () => {
         await expect(statusRegion(page)).toHaveText(TEXT.loading);
 
         await release(held[1]);
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(statusRegion(page)).toBeEmpty();
         await release(held[0]);
         await pause(page);
 
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(statusRegion(page)).toBeEmpty();
     });
 
@@ -379,17 +385,17 @@ test.describe("a column without entries", () => {
         await fillHand(page, NOTHING);
         await (await calculated).finished();
 
-        await expect(
-            page.locator("#outputarealeft").getByRole("heading", { name: "Fusiones" })
-        ).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Fusiones", level: 2, exact: true })).toBeVisible();
         await expect(page.locator("#outputarealeft > p")).toHaveText(TEXT.noFusions);
         await expect(
-            page.locator("#outputarearight").getByRole("heading", { name: "Se puede equipar a" })
+            page.getByRole("heading", { name: "Se puede equipar a", level: 2, exact: true })
         ).toBeVisible();
         await expect(page.locator("#outputarearight > p")).toHaveText(TEXT.noEquips);
-        await expect(page.locator("#outputarealeft > div")).toHaveCount(0);
+        await expect(page.locator("#outputarealeft .fusion-row")).toHaveCount(0);
         await expect(page.locator("#outputarearight > div")).toHaveCount(0);
-        await expectRitualsHidden(page.locator("#rituals-output"));
+        // The rituals panel stays: it says what a ritual needs.
+        await expect(page.getByRole("heading", { name: "Rituales", level: 2, exact: true })).toBeVisible();
+        await expect(page.locator("#rituals-output > p")).toHaveText(TEXT.noRituals);
     });
 
     test("says so only for the fusions when the hand has just an equip pair", async ({ page }) => {
@@ -399,7 +405,7 @@ test.describe("a column without entries", () => {
 
         await expect(page.locator("#outputarearight > div")).toHaveCount(1);
         await expect(page.locator("#outputarealeft > p")).toHaveText(TEXT.noFusions);
-        await expect(page.locator("#outputarealeft > div")).toHaveCount(0);
+        await expect(page.locator("#outputarealeft .fusion-row")).toHaveCount(0);
         await expect(page.locator("#outputarearight > p")).toHaveCount(0);
     });
 
@@ -408,7 +414,7 @@ test.describe("a column without entries", () => {
 
         await fillHand(page, FUSION_ONLY);
 
-        await expect(page.locator("#outputarealeft > div")).toHaveCount(1);
+        await expect(page.locator("#outputarealeft .fusion-row")).toHaveCount(1);
         await expect(page.locator("#outputarearight > p")).toHaveText(TEXT.noEquips);
         await expect(page.locator("#outputarearight > div")).toHaveCount(0);
         await expect(page.locator("#outputarealeft > p")).toHaveCount(0);
@@ -419,7 +425,7 @@ test.describe("a column without entries", () => {
 
         await fillHand(page, CHAIN_HAND);
 
-        await expect(page.locator("#outputarealeft > div")).toHaveCount(1);
+        await expect(page.locator("#outputarealeft .fusion-row")).toHaveCount(1);
         await expect(page.locator("#outputarearight > div")).toHaveCount(1);
         await expect(page.locator("#outputarealeft > p")).toHaveCount(0);
         await expect(page.locator("#outputarearight > p")).toHaveCount(0);
@@ -440,7 +446,12 @@ test.describe("an equip pair", () => {
 
             const entry = page.locator("#outputarearight > div");
             await expect(entry).toHaveCount(1);
-            await expect(entry.locator("p")).toHaveText([`Equipo: ${EQUIP_CARD}`, `Monstruo: ${MONSTER}`]);
+            await expect(entry.locator(".card-caption")).toHaveText(["Equipo", "Monstruo"]);
+            await expect(entry.locator(".card-tile-name")).toHaveText([EQUIP_CARD, MONSTER]);
+            await expect(entry.locator(".card-tile[data-size='s']")).toHaveCount(2);
+            await expect(entry.locator(".card-tile").first()).toHaveAttribute("data-kind", "equip");
+            await expect(entry.locator(".card-tile").last()).toHaveAttribute("data-kind", "monster");
+            await expect(entry.locator("svg[aria-hidden='true']")).toHaveCount(1);
             const images = entry.locator("img");
             await expect(images).toHaveCount(2);
             await expect(images.nth(0)).toHaveAttribute(
@@ -459,22 +470,22 @@ test.describe("an equip pair", () => {
 
         await fillHand(page, CHAIN_HAND);
 
-        await expect(page.locator("#outputarearight > div p")).toHaveText([
-            "Equipo: Machine Conversion Factory",
-            "Monstruo: Tyhone",
+        await expect(page.locator("#outputarearight .card-tile-name")).toHaveText([
+            "Machine Conversion Factory",
+            "Tyhone",
         ]);
+        await expect(page.locator("#outputarearight .card-caption")).toHaveText(["Equipo", "Monstruo"]);
     });
 
-    test("a fusion lists its result first and keeps the neutral labels for its inputs", async ({ page }) => {
+    test("a fusion row names its result, shows its ATK / DEF and lists its two inputs", async ({ page }) => {
         await openCalculator(page);
 
         await fillHand(page, FUSION_ONLY);
 
-        await expect(page.locator("#outputarealeft > div p")).toHaveText([
-            "Resultado: Queen of Autumn Leaves (1800/1500)",
-            `Carta: ${MYSTICAL_ELF}`,
-            `Carta: ${MUSHROOM_MAN}`,
-        ]);
+        const row = page.locator("#outputarealeft .fusion-row");
+        await expect(row.locator(".fusion-name")).toContainText("Queen of Autumn Leaves");
+        await expect(row.locator(".fusion-stat")).toHaveText("1800 / 1500");
+        await expect(row.locator(".fusion-input")).toHaveText([MYSTICAL_ELF, MUSHROOM_MAN]);
     });
 
     test("keeps the neutral labels, in order, when it is not one Equip and one other card", async ({
@@ -498,11 +509,13 @@ test.describe("an equip pair", () => {
 
         const entries = page.locator("#outputarearight > div");
         await expect(entries).toHaveCount(2);
-        await expect(entries.nth(0).locator("p")).toHaveText([
-            "Carta: First Monster",
-            "Carta: Second Monster",
+        await expect(entries.nth(0).locator(".card-caption")).toHaveText(["Carta", "Carta"]);
+        await expect(entries.nth(0).locator(".card-tile-name")).toHaveText([
+            "First Monster",
+            "Second Monster",
         ]);
-        await expect(entries.nth(1).locator("p")).toHaveText(["Carta: First Equip", "Carta: Second Equip"]);
+        await expect(entries.nth(1).locator(".card-caption")).toHaveText(["Carta", "Carta"]);
+        await expect(entries.nth(1).locator(".card-tile-name")).toHaveText(["First Equip", "Second Equip"]);
     });
 });
 
@@ -891,7 +904,7 @@ test.describe("the best play", () => {
         await fillHand(page, FUSION_ONLY);
 
         await expect(page.locator("#chain-output").getByRole("alert")).toBeVisible();
-        await expect(page.locator("#outputarealeft > div")).toHaveCount(1);
+        await expect(page.locator("#outputarealeft .fusion-row")).toHaveCount(1);
         await expect(page.locator("#results-error")).toBeEmpty();
     });
 
@@ -981,7 +994,7 @@ test.describe("the add card button", () => {
         await fillHand(page, FULL_HAND);
 
         expect((await calculated).status()).toBe(200);
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(page.locator("#results-error")).toBeEmpty();
         await expect(statusRegion(page)).toBeEmpty();
     });
@@ -1015,10 +1028,8 @@ test.describe("in English", () => {
 
         await fillHand(page, [MONSTER, EQUIP_CARD]);
 
-        await expect(page.locator("#outputarearight > div p")).toHaveText([
-            `Equip: ${EQUIP_CARD}`,
-            `Monster: ${MONSTER}`,
-        ]);
+        await expect(page.locator("#outputarearight .card-caption")).toHaveText(["Equip", "Monster"]);
+        await expect(page.locator("#outputarearight .card-tile-name")).toHaveText([EQUIP_CARD, MONSTER]);
     });
 
     test("translates the chain and its partial search note", async ({ page }) => {

@@ -76,21 +76,44 @@
                     <div id="chain-output"></div>
                 </div>
             </section>
-            <section aria-labelledby="results-title" class="win">
+            <section id="results-hint" aria-labelledby="results-title" class="win">
                 <div class="win-bar win-bar-grey">
                     <h2 id="results-title" class="win-title"><%= t('calculator.results.title') %></h2>
                 </div>
                 <div class="win-body">
                     <div id="results-error"></div>
                     <div id="results-status" role="status" aria-live="polite"></div>
-                    <div class="grid md:grid-cols-2 gap-4">
-                        <div id="outputarealeft"></div>
-                        <div id="outputarearight"></div>
-                    </div>
-                    <div id="outputareaother" class="hidden flex-wrap justify-center gap-x-3 mt-4"></div>
-                    <div id="rituals-output" class="hidden mt-4"></div>
                 </div>
             </section>
+            <div id="results-panels" hidden class="flex flex-col gap-5">
+                <section aria-labelledby="fusions-title" class="win">
+                    <div class="win-bar win-bar-green">
+                        <h2 id="fusions-title" class="win-title"><%= t('search.results.fusions') %></h2>
+                    </div>
+                    <div class="win-body">
+                        <div id="outputarealeft"></div>
+                        <div id="outputareaother" class="hidden mt-5"></div>
+                    </div>
+                </section>
+                <div class="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-5 max-[1100px]:grid-cols-1">
+                    <section aria-labelledby="equips-title" class="win">
+                        <div class="win-bar win-bar-red">
+                            <h2 id="equips-title" class="win-title"><%= t('search.results.equips') %></h2>
+                        </div>
+                        <div class="win-body">
+                            <div id="outputarearight" class="flex flex-col gap-4"></div>
+                        </div>
+                    </section>
+                    <section aria-labelledby="rituals-title" class="win">
+                        <div class="win-bar win-bar-pink">
+                            <h2 id="rituals-title" class="win-title"><%= t('search.results.rituals') %></h2>
+                        </div>
+                        <div class="win-body">
+                            <div id="rituals-output"></div>
+                        </div>
+                    </section>
+                </div>
+            </div>
         </div>
     </div>
 </div>

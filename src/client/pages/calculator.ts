@@ -1,7 +1,7 @@
 import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
 import { renderChains } from "../components/chain-panel.js";
-import { renderEquip, renderFusion, renderRitual } from "../components/fusion-card.js";
+import { renderEquipRow, renderFusionTable, renderRitualRow } from "../components/results-panels.js";
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
 import type { CalculatorResponse, CardSummary, FusionExpanded, RitualExpanded } from "../../shared/types.js";
 import { MAX_HAND_SIZE } from "../../shared/limits.js";
@@ -75,6 +75,8 @@ function mountCalculatorPage(): void {
     const outputRight = qs<HTMLElement>("#outputarearight");
     const outputOther = qs<HTMLElement>("#outputareaother");
     const outputRituals = qs<HTMLElement>("#rituals-output");
+    const resultsHint = qs<HTMLElement>("#results-hint");
+    const resultsPanels = qs<HTMLElement>("#results-panels");
     const resultsError = qs<HTMLElement>("#results-error");
     const resultsStatus = qs<HTMLElement>("#results-status");
     const addSlotHint = qs<HTMLElement>("#add-slot-hint");
@@ -94,6 +96,8 @@ function mountCalculatorPage(): void {
         !outputRight ||
         !outputOther ||
         !outputRituals ||
+        !resultsHint ||
+        !resultsPanels ||
         !resultsError ||
         !resultsStatus ||
         !addSlotHint ||
@@ -138,8 +142,11 @@ function mountCalculatorPage(): void {
         clear(outputLeft);
         clear(outputRight);
         hideBlock(outputOther);
-        hideBlock(outputRituals);
+        clear(outputRituals);
         clear(resultsError);
+        // The grey panel holds the hint, the loading text and the error; the coloured panels hold the results.
+        resultsPanels.hidden = true;
+        resultsHint.hidden = false;
     };
 
     // What the panel says while it has nothing to list: a hint, the loading text, or nothing.
@@ -165,18 +172,21 @@ function mountCalculatorPage(): void {
         // The server sorts fusions by the ATK of what they make; each kind keeps that order.
         const monsters = result.fusions.filter((fusion) => fusion.result.isMonster);
         const others = result.fusions.filter((fusion) => !fusion.result.isMonster);
-        appendHeader(outputLeft, t("search.results.fusions"));
-        for (const fusion of monsters) outputLeft.appendChild(renderFusion(fusion));
-        if (monsters.length === 0) {
+        if (monsters.length > 0) {
+            outputLeft.appendChild(
+                renderFusionTable(monsters, { highlightFirst: true, label: t("search.results.fusions") })
+            );
+        } else {
             const key =
                 others.length === 0 ? "calculator.results.no-fusions" : "calculator.results.no-monster-fusions";
             appendNone(outputLeft, t(key));
         }
         showOtherResults(outputOther, others);
-        appendHeader(outputRight, t("search.results.equips"));
-        for (const equip of result.equips) outputRight.appendChild(renderEquip(equip));
+        for (const equip of result.equips) outputRight.appendChild(renderEquipRow(equip));
         if (result.equips.length === 0) appendNone(outputRight, t("calculator.results.no-equips"));
         showRituals(outputRituals, result.rituals);
+        resultsHint.hidden = true;
+        resultsPanels.hidden = false;
     };
 
     // The chain belongs to the hand it was made for: drop its output and any request still in flight.
@@ -578,13 +588,6 @@ function describeChainError(err: unknown): string {
     return t("calculator.chain.error");
 }
 
-function appendHeader(where: HTMLElement, label: string): void {
-    const h2 = document.createElement("h2");
-    h2.className = "text-center my-4 font-display text-2xl";
-    h2.textContent = label;
-    where.appendChild(h2);
-}
-
 // A <p>, not a <div>, so the entries of a column stay exactly its <div> children.
 function appendNone(where: HTMLElement, message: string): void {
     const p = document.createElement("p");
@@ -610,20 +613,24 @@ function hideBlock(where: HTMLElement): void {
 
 function showOtherResults(where: HTMLElement, fusions: readonly FusionExpanded[]): void {
     if (fusions.length === 0) return;
-    appendHeader(where, t("calculator.results.non-monster"));
-    // The entries are direct children of the block, so the heading takes a full row of the wrapping flex.
-    where.firstElementChild?.classList.add("w-full");
-    for (const fusion of fusions) where.appendChild(renderFusion(fusion));
+    const title = document.createElement("h3");
+    title.className = "m-0 mb-1 font-display text-[17px] font-bold";
+    title.textContent = t("calculator.results.non-monster");
+    where.appendChild(title);
+    where.appendChild(
+        renderFusionTable(fusions, { highlightFirst: false, label: t("calculator.results.non-monster") })
+    );
     where.classList.remove("hidden");
-    where.classList.add("flex");
 }
 
+// The panel stays on screen whatever the hand: with no ritual it says what a ritual needs.
 function showRituals(where: HTMLElement, rituals: readonly RitualExpanded[]): void {
-    if (rituals.length === 0) return;
-    appendHeader(where, t("search.results.rituals"));
-    const list = document.createElement("div");
-    list.className = "flex flex-wrap justify-center gap-x-3";
-    for (const ritual of rituals) list.appendChild(renderRitual(ritual));
-    where.appendChild(list);
-    where.classList.remove("hidden");
+    if (rituals.length === 0) {
+        const none = document.createElement("p");
+        none.className = "m-0";
+        none.textContent = t("calculator.results.no-rituals");
+        where.appendChild(none);
+        return;
+    }
+    for (const ritual of rituals) where.appendChild(renderRitualRow(ritual));
 }

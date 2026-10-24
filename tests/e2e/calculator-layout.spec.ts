@@ -210,7 +210,7 @@ test.describe("the Workbench frame", () => {
         await fillPair(page);
         expect(await bar(page, "#chain-section .win-bar")).toBe("rgb(31, 70, 176)");
         await expect(page.locator("#chain-section .win-bar h2")).toHaveText("Cadena óptima de fusiones");
-        expect(await bar(page, "#answer-column > section:last-child .win-bar")).toBe("rgb(60, 62, 69)");
+        expect(await bar(page, "#results-hint .win-bar")).toBe("rgb(60, 62, 69)");
     });
 
     test("keeps the hand panel in view on a tall desktop window", async ({ page }) => {

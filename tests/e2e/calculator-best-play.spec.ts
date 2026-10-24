@@ -66,7 +66,9 @@ test.describe("the best play for the real hand", () => {
         await expect(best.locator(".chain-step").nth(1).locator(".chain-carried")).toHaveCount(1);
         await expect(carried.locator("xpath=preceding-sibling::*[1]")).toContainText("Spike Seadra");
         // The best single fusion is the first monster of the results column.
-        await expect(page.locator("#outputarealeft > div").first()).toContainText("Sword Arm of Dragon");
+        await expect(page.locator("#outputarealeft .fusion-row").first()).toContainText(
+            "Sword Arm of Dragon"
+        );
     });
 
     test("is announced in English without any click", async ({ browser }) => {
@@ -238,7 +240,7 @@ test.describe("the best play for the real hand", () => {
         await fillProblemHand(page);
 
         await expect(page.locator("#chain-section")).toBeVisible();
-        await expect(page.locator("#outputarealeft h2")).toHaveCount(1);
-        await expect(page.locator("#outputarearight h2")).toHaveCount(1);
+        await expect(page.locator("#fusions-title")).toBeVisible();
+        await expect(page.locator("#equips-title")).toBeVisible();
     });
 });
