@@ -17,6 +17,7 @@ Basada en el proyecto original de [Solumin](https://github.com/Solumin/YGO-FM-Fu
 - **Aplicar una fusión a la mano** — al elegir una fila de la tabla de fusiones (con el ratón, o con el teclado e Intro), sus dos cartas salen de la mano: el resultado ocupa la ranura de la primera y la de la segunda queda vacía. Los resultados y las cadenas se recalculan, así que se puede seguir fusionando paso a paso, y la mano nueva se guarda.
 - **Rituales** — un ritual aparece cuando la mano contiene la carta de ritual y sus tres materiales (se cuentan las copias).
 - **Cadena óptima de fusiones** — con 2 cartas o más, la calculadora busca sola, sin pulsar ningún botón, las secuencias de fusiones que maximizan el ATK del resultado final: hasta 5 cadenas, una por monstruo final y por su ruta más corta, ordenadas por ATK y, a igualdad, por menos pasos. La mejor jugada va primero: una frase dice qué carta se obtiene y en cuántos pasos, la carta final aparece grande con su ATK y, si supera a la mejor fusión simple de la mano, se indica cuánto ATK gana. Cada cadena tiene su pestaña, con la mejor primero. Los pasos se muestran como «carta + carta = resultado», y la carta que sale de un paso anterior lleva la nota «Resultado del paso N». Si la búsqueda falla, un botón permite reintentarla.
+- **Mejor mazo** — la página `/deck` lee en el navegador una partida de Forbidden Memories (el archivo no se sube; al servidor solo viajan los números de las cartas del mazo y de repuesto), muestra tu colección y calcula qué cartas cambiar para que el mazo de 40 cartas juegue mejor. Si el archivo trae varias partidas, se elige una. El resultado compara el mazo actual con el recomendado (ataque medio de la mejor jugada, manos de 1500 o más y de 2000 o más, y manos sin jugada), lista los cambios «sale → entra» con sus cartas, enseña las 40 cartas con las nuevas marcadas y las fusiones en las que se apoya. Por defecto la magia, los equipos y los campos del mazo no se tocan; se puede desmarcar. El texto del resultado dice solo lo que la respuesta garantiza: «el mejor mazo posible», «ningún cambio de una carta lo mejora» o «el mejor encontrado en el tiempo disponible».
 - **Autocompletado** — hasta 8 sugerencias por prefijo, inicio de palabra o subcadena, sin distinguir mayúsculas, acentos, guiones ni signos de puntuación.
 - **Imágenes de carta** — artwork real de cada carta vía CDN de YGOProDeck; si una carta no tiene, se muestra un marcador con su nombre.
 - **i18n** — interfaz disponible en español e inglés.
@@ -28,12 +29,13 @@ Basada en el proyecto original de [Solumin](https://github.com/Solumin/YGO-FM-Fu
 
 ### Límites
 
-| Tema         | Comportamiento                                                                                                                                                         |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mano         | 5 ranuras al empezar, máximo 12 (`MAX_HAND_SIZE` en `src/shared/limits.ts`). «Añadir carta» se desactiva al llegar al máximo.                                          |
-| Cadenas      | Hasta 5 por búsqueda. Si se agota `MAX_CHAIN_STATES` (50 000 estados), la API responde `truncated: true` y la página avisa de que el resultado puede ser parcial.      |
-| Rituales     | Solo recetas completas (carta de ritual y sus 3 materiales en la mano). No hay avance parcial ni se integran en las cadenas.                                           |
-| Persistencia | La mano se guarda en `localStorage` (clave `ygo-fm-fusioncalc:hand:v1`). Si el navegador bloquea el almacenamiento, la página funciona igual pero no recuerda la mano. |
+| Tema         | Comportamiento                                                                                                                                                                                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mano         | 5 ranuras al empezar, máximo 12 (`MAX_HAND_SIZE` en `src/shared/limits.ts`). «Añadir carta» se desactiva al llegar al máximo.                                                                                                                                                   |
+| Cadenas      | Hasta 5 por búsqueda. Si se agota `MAX_CHAIN_STATES` (50 000 estados), la API responde `truncated: true` y la página avisa de que el resultado puede ser parcial.                                                                                                               |
+| Rituales     | Solo recetas completas (carta de ritual y sus 3 materiales en la mano). No hay avance parcial ni se integran en las cadenas.                                                                                                                                                    |
+| Mejor mazo   | El mazo tiene 40 cartas y cada carta entra como mucho 3 veces (`DECK_SIZE` y `MAX_COPIES_PER_CARD` en `src/shared/limits.ts`). Un cálculo tarda hasta unos 5 s y solo se hace uno a la vez: si llega otro, la API responde `503`. El archivo de partida puede pesar hasta 1 MB. |
+| Persistencia | La mano se guarda en `localStorage` (clave `ygo-fm-fusioncalc:hand:v1`). Si el navegador bloquea el almacenamiento, la página funciona igual pero no recuerda la mano.                                                                                                          |
 
 Los dos `POST` de la API (`/api/calculator` y `/api/chain-search`) reciben `{ "handIds": [...] }` y ignoran los ids que no corresponden a ninguna carta. Errores de validación:
 
@@ -44,12 +46,30 @@ Los dos `POST` de la API (`/api/calculator` y `/api/chain-search`) reciben `{ "h
 | `400`     | `invalid-json`      | el cuerpo no es JSON válido                   |
 | `413`     | `payload-too-large` | el cuerpo supera 32 kB                        |
 
+`POST /api/deck/optimize` recibe `{ "deck": [40 ids], "trunk": [{ "id", "count" }], "keepNonMonsters": true }` (`keepNonMonsters` va en el nivel superior y vale `true` si se omite). Responde con las estadísticas actuales y recomendadas, los cambios, el mazo recomendado y `certified`, `method` y `truncated`. Errores:
+
+| Respuesta | Código              | Cuándo                                                                       |
+| --------- | ------------------- | ---------------------------------------------------------------------------- |
+| `400`     | `invalid-deck`      | `deck` no son exactamente 40 enteros positivos                               |
+| `400`     | `invalid-trunk`     | `trunk` mal formado, con ids repetidos o con un `count` fuera de 0–255       |
+| `400`     | `invalid-options`   | `keepNonMonsters` no es un booleano                                          |
+| `400`     | `unknown-card`      | algún id no corresponde a ninguna carta                                      |
+| `400`     | `invalid-json`      | el cuerpo no es JSON válido                                                  |
+| `413`     | `payload-too-large` | el cuerpo supera 32 kB                                                       |
+| `503`     | `busy`              | ya hay un cálculo en marcha; la cabecera `Retry-After` indica cuánto esperar |
+| `500`     | `internal-error`    | fallo del servidor                                                           |
+
 ### Limitaciones conocidas
 
 - **Nombres de carta solo en inglés.** La interfaz está en español e inglés, pero no hay una fuente de datos con los nombres en español.
 - **Modelo de cadenas sin verificar en el juego real.** Se puede fusionar cualquier par de cartas de la mano de trabajo, incluidos dos resultados intermedios entre sí. No está comprobado que el juego lo permita, así que alguna cadena podría no ser ejecutable. Ver «Preguntas abiertas» en [`.sdd/specs/20260501-chained-fusion-search.md`](.sdd/specs/20260501-chained-fusion-search.md). Un test fija ese comportamiento (`can fuse two intermediate results with each other` en `tests/unit/server/domain/chain-search.test.ts`): es el que hay que cambiar si el juego no lo permite.
 - **Imágenes enlazadas directamente desde YGOProDeck.** La [guía de su API](https://ygoprodeck.com/api-guide/) pide descargarlas y alojarlas uno mismo: «Do not continually hotlink images directly from this site. Please download and re-host the images yourself. Failure to do so will result in an IP blacklist.» Es una limitación anterior a los últimos cambios; alojar las imágenes en el propio proyecto queda como tarea aparte.
 - **La búsqueda de cadenas se lanza en cada cambio de mano.** El navegador cancela la petición anterior, pero el servidor termina de calcularla igualmente (hasta `MAX_CHAIN_STATES` estados), y la API no limita el número de peticiones.
+- **Mejor mazo: las mejoras de equipos y campos no se puntúan.** El juego no trae sus cifras, así que la magia, los equipos y los campos valen 0 al comparar mazos. Por eso la opción «Mantener la magia, los equipos y los campos» está activa por defecto.
+- **Mejor mazo: el límite de 3 copias es una suposición.** Ninguna fuente ha confirmado la regla del juego; vive en una sola constante (`MAX_COPIES_PER_CARD`) para cambiarla fácilmente.
+- **Mejor mazo: sin límite por IP.** Solo se calcula un mazo a la vez (el resto recibe `503`), pero la API no limita cuántas peticiones puede hacer una misma IP.
+- **Mejor mazo: con colecciones de final de partida el resultado suele ser `truncated`.** Con muchas cartas la búsqueda agota su tiempo (unos 5 s) y la página dice que es el mejor mazo encontrado, no que sea el mejor posible. Solo con colecciones pequeñas se prueban todos los mazos y se puede afirmar que es el mejor posible.
+- **Mejor mazo: formatos de partida.** El archivo se reconoce por su contenido, no por la extensión: un bloque de partida de 8 KB (`.sav`), `.mcs`, tarjeta de memoria en bruto (`.mcr`, `.mcd`, `.srm`, `.mc`), `.gme` y `.SAVERAM`. Se ha comprobado con una partida real de un solo bloque; el resto de formatos solo se ha probado con partidas sintéticas. No se admite la edición japonesa (disposición desconocida) ni se escribe ninguna partida.
 - **17 de las 722 cartas no tienen artwork** (medición del 2026-09-30) y muestran un marcador con su nombre. Detalle y método en [`.sdd/specs/20260501-card-images.md`](.sdd/specs/20260501-card-images.md).
 
 ---
@@ -109,7 +129,7 @@ App Express + EJS renderizada en servidor con cliente TypeScript compilado con V
 - `src/server/domain/` — lógica de dominio (fusiones, cálculo, cadenas, rituales)
 - `src/server/data/store.ts` — carga de datos JSON en memoria al arrancar
 - `src/server/http/routes/api.ts` — endpoints de la API REST y validación de la mano
-- `src/client/` — cliente TypeScript; consume la API REST bajo `/api/`. La lógica que no toca el DOM vive en `src/client/lib/` con tests unitarios (`name-search.ts`, `hand-storage.ts`, `latest.ts`, `slots.ts`)
+- `src/client/` — cliente TypeScript; consume la API REST bajo `/api/`. La lógica que no toca el DOM vive en `src/client/lib/` con tests unitarios (`name-search.ts`, `hand-storage.ts`, `latest.ts`, `slots.ts`, `fm-save.ts`, `deck-view.ts`)
 - `src/shared/` — tipos, i18n y constantes compartidas entre cliente y servidor (`limits.ts` con `MAX_HAND_SIZE`, `card-image-overrides.json`)
 - `.sdd/` — SPECs y PLANs del proceso de desarrollo dirigido por especificaciones; [`.sdd/context/structure.md`](.sdd/context/structure.md) tiene el mapa completo de archivos
 
@@ -135,6 +155,7 @@ App Express + EJS renderizada en servidor con cliente TypeScript compilado con V
 - [x] Rediseño de la calculadora: mejor jugada primero, resultados por tipo y dos columnas
 - [x] Estilo Workbench en todo el sitio: pestañas de cadenas, tabla de fusiones y paneles de equipos y rituales
 - [x] Aplicar una fusión de la tabla a la mano
+- [x] Mejor mazo a partir de una partida guardada (`/deck`)
 - [ ] Filtros y ordenación por tipo, ATK/DEF y estrellas
 - [ ] Constructor de mazo persistido en `localStorage`
 - [ ] Vista de detalle de carta mejorada

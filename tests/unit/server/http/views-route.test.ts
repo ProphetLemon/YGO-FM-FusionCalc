@@ -35,6 +35,15 @@ describe("view routes", () => {
         expect(res.text).not.toContain("/public/javascripts/fusionCalc.js");
     });
 
+    it("renders the best deck page with a labelled file input and the navbar link", async () => {
+        const res = await request(app).get("/deck");
+        expect(res.status).toBe(200);
+        expect(res.text).toContain('id="deck-file"');
+        expect(res.text).toContain('for="deck-file"');
+        expect(res.text).toContain('id="deck-compute"');
+        expect(res.text).toMatch(/<a\s+href="\/deck"\s+class="[^"]*"\s+aria-current="page"/);
+    });
+
     it("renders about page", async () => {
         const res = await request(app).get("/about");
         expect(res.status).toBe(200);

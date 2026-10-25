@@ -16,6 +16,7 @@ export default defineConfig({
                 home: path.resolve(__dirname, "src/client/pages/home.ts"),
                 search: path.resolve(__dirname, "src/client/pages/search.ts"),
                 calculator: path.resolve(__dirname, "src/client/pages/calculator.ts"),
+                deck: path.resolve(__dirname, "src/client/pages/deck.ts"),
                 about: path.resolve(__dirname, "src/client/pages/about.ts"),
             },
         },

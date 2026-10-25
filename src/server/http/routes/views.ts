@@ -3,11 +3,11 @@ import { getCatalog } from "../../../shared/i18n/index.js";
 import { assetUrl } from "../assets.js";
 
 interface PageOptions {
-    contentView: "index" | "search" | "calculator" | "about";
+    contentView: "index" | "search" | "calculator" | "deck" | "about";
     pageTitle: string;
     pageStyles?: readonly string[];
     pageScripts?: readonly string[];
-    activeNav: "home" | "search" | "calculator" | "about";
+    activeNav: "home" | "search" | "calculator" | "deck" | "about";
 }
 
 function renderPage(res: Response, locals: PageOptions): void {
@@ -58,6 +58,16 @@ export function viewsRouter(): Router {
             pageTitle: res.locals.t("page.calculator.title"),
             activeNav: "calculator",
             pageScripts: calculatorBundle ? [calculatorBundle] : [],
+        });
+    });
+
+    router.get("/deck", (_req: Request, res: Response): void => {
+        const deckBundle = tryAssetUrl("pages/deck.ts");
+        renderPage(res, {
+            contentView: "deck",
+            pageTitle: res.locals.t("page.deck.title"),
+            activeNav: "deck",
+            pageScripts: deckBundle ? [deckBundle] : [],
         });
     });
 
