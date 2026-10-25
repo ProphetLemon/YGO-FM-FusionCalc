@@ -11,7 +11,7 @@
             class="win min-[1101px]:[@media(min-height:860px)]:sticky min-[1101px]:[@media(min-height:860px)]:top-4"
         >
             <div class="win-bar win-bar-grey">
-                <h2 id="hand-title" class="win-title"><%= t('calculator.hand.title') %></h2>
+                <h2 id="hand-title" tabindex="-1" class="win-title"><%= t('calculator.hand.title') %></h2>
                 <span id="hand-count" aria-live="polite" class="font-display text-lg text-white"></span>
             </div>
             <div class="win-body">
@@ -88,9 +88,10 @@
             <div id="results-panels" hidden class="flex flex-col gap-5">
                 <section aria-labelledby="fusions-title" class="win">
                     <div class="win-bar win-bar-green">
-                        <h2 id="fusions-title" class="win-title"><%= t('search.results.fusions') %></h2>
+                        <h2 id="fusions-title" tabindex="-1" class="win-title"><%= t('search.results.fusions') %></h2>
                     </div>
                     <div class="win-body">
+                        <p id="fusions-apply-hint" hidden class="m-0 mb-2 font-body text-sm text-wb-mute"><%= t('calculator.results.apply-hint') %></p>
                         <div id="outputarealeft"></div>
                         <div id="outputareaother" class="hidden mt-5"></div>
                     </div>

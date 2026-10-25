@@ -13,6 +13,12 @@ const GRID_CLASS =
     "max-[700px]:[&>:nth-child(3)]:col-start-2 max-[700px]:[&>:nth-child(4)]:col-start-2";
 const HEAD_CLASS = `${GRID_CLASS} mb-1 text-sm font-bold text-wb-mute max-[700px]:hidden`;
 const ROW_CLASS = `fusion-row ${GRID_CLASS} py-2.5 border-t-2 border-wb-rule`;
+// A row that can be applied to the hand: the whole row takes the pointer and shows it on hover. The button
+// that does it for keyboard and screen readers is stretched over the row (which is `relative`), so a click
+// anywhere on the row is a click on the button and its focus ring outlines the whole row.
+const ACTION_ROW_CLASS = "relative cursor-pointer hover:bg-wb-plate-hover";
+const BEST_ACTION_ROW_CLASS = "relative cursor-pointer hover:bg-wb-best-hover";
+const APPLY_BUTTON_CLASS = "absolute inset-0 w-full h-full p-0 bg-transparent border-0 cursor-pointer";
 // The best row gets its own box: the fill and a green outline reach 10px (8px on a phone) past the column.
 const BEST_ROW_CLASS =
     "bg-wb-best outline outline-2 outline-wb-green px-2.5 -mx-2.5 border-t-transparent " +
@@ -50,13 +56,34 @@ function headerRow(srOnly: boolean): HTMLElement {
     return row;
 }
 
-function fusionRow(entry: FusionExpanded, best: boolean): HTMLElement {
+function fusionRow(
+    entry: FusionExpanded,
+    best: boolean,
+    onApply?: (entry: FusionExpanded) => void
+): HTMLElement {
     const result = entry.result;
-    const row = element("div", best ? `${ROW_CLASS} ${BEST_ROW_CLASS}` : ROW_CLASS, "row");
+    let className = best ? `${ROW_CLASS} ${BEST_ROW_CLASS}` : ROW_CLASS;
+    if (onApply) className += ` ${best ? BEST_ACTION_ROW_CLASS : ACTION_ROW_CLASS}`;
+    const row = element("div", className, "row");
     if (best) row.dataset.best = "true";
 
     const tileCell = cell();
     tileCell.appendChild(createCardTile(result, { size: "xs", kind: "fusion" }));
+    if (onApply) {
+        // The real control: the row keeps its table semantics and the button lives in a cell.
+        const apply = element("button", APPLY_BUTTON_CLASS);
+        apply.type = "button";
+        apply.setAttribute(
+            "aria-label",
+            t("calculator.results.apply", {
+                card1: entry.card1.name,
+                card2: entry.card2.name,
+                result: result.name,
+            })
+        );
+        apply.addEventListener("click", () => onApply(entry));
+        tileCell.appendChild(apply);
+    }
 
     const nameCell = cell("min-w-0");
     const name = element("div", "fusion-name text-[17px] font-bold leading-tight [overflow-wrap:anywhere]");
@@ -96,16 +123,17 @@ function fusionRow(entry: FusionExpanded, best: boolean): HTMLElement {
 }
 
 // A table of fusions: a header row, then one row per fusion. With `highlightFirst` the first row is the best
-// single fusion (the server sorts the monsters by the ATK of what they make). `label` names the table.
+// single fusion (the server sorts the monsters by the ATK of what they make). `label` names the table. With
+// `onApply` every row can be chosen, by pointer or by the button inside it.
 export function renderFusionTable(
     fusions: readonly FusionExpanded[],
-    options: { highlightFirst: boolean; label: string }
+    options: { highlightFirst: boolean; label: string; onApply?: (fusion: FusionExpanded) => void }
 ): HTMLElement {
     const table = element("div", "fusion-table", "table");
     table.setAttribute("aria-label", options.label);
     table.appendChild(headerRow(!options.highlightFirst));
     fusions.forEach((fusion, index) => {
-        table.appendChild(fusionRow(fusion, options.highlightFirst && index === 0));
+        table.appendChild(fusionRow(fusion, options.highlightFirst && index === 0, options.onApply));
     });
     return table;
 }

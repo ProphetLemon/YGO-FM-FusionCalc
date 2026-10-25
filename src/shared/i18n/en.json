@@ -70,6 +70,8 @@
     "calculator.results.no-atk": "No ATK",
     "calculator.results.no-rituals": "None for this hand. A ritual shows up here once you hold the ritual card and its three materials.",
     "calculator.results.error": "The results could not be calculated. Please try again.",
+    "calculator.results.apply": "Fuse {{card1}} and {{card2}} into {{result}}",
+    "calculator.results.apply-hint": "Choose a fusion to put its result in your hand in place of the two cards.",
     "calculator.chain.title": "Optimal fusion chain",
     "calculator.chain.loading": "Calculating…",
     "calculator.chain.no-result": "No fusion chain found for this hand.",

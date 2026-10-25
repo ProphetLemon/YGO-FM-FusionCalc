@@ -5,6 +5,7 @@ import { renderEquipRow, renderFusionTable, renderRitualRow } from "../component
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
 import type { CalculatorResponse, CardSummary, FusionExpanded, RitualExpanded } from "../../shared/types.js";
 import { MAX_HAND_SIZE } from "../../shared/limits.js";
+import { findFusionSlots } from "../lib/fusion-slots.js";
 import { MIN_HAND_SIZE, canAddSlot, canRemoveSlot, getSlotIds, getValidIds } from "../lib/slots.js";
 import { createCardImg } from "../lib/card-image.js";
 import { clear, qs } from "../lib/dom.js";
@@ -74,6 +75,7 @@ function mountCalculatorPage(): void {
     const outputLeft = qs<HTMLElement>("#outputarealeft");
     const outputRight = qs<HTMLElement>("#outputarearight");
     const outputOther = qs<HTMLElement>("#outputareaother");
+    const applyHint = qs<HTMLElement>("#fusions-apply-hint");
     const outputRituals = qs<HTMLElement>("#rituals-output");
     const resultsHint = qs<HTMLElement>("#results-hint");
     const resultsPanels = qs<HTMLElement>("#results-panels");
@@ -95,6 +97,7 @@ function mountCalculatorPage(): void {
         !outputLeft ||
         !outputRight ||
         !outputOther ||
+        !applyHint ||
         !outputRituals ||
         !resultsHint ||
         !resultsPanels ||
@@ -140,6 +143,7 @@ function mountCalculatorPage(): void {
 
     const clearResults = (): void => {
         clear(outputLeft);
+        applyHint.hidden = true;
         clear(outputRight);
         hideBlock(outputOther);
         clear(outputRituals);
@@ -172,16 +176,21 @@ function mountCalculatorPage(): void {
         // The server sorts fusions by the ATK of what they make; each kind keeps that order.
         const monsters = result.fusions.filter((fusion) => fusion.result.isMonster);
         const others = result.fusions.filter((fusion) => !fusion.result.isMonster);
+        applyHint.hidden = result.fusions.length === 0;
         if (monsters.length > 0) {
             outputLeft.appendChild(
-                renderFusionTable(monsters, { highlightFirst: true, label: t("search.results.fusions") })
+                renderFusionTable(monsters, {
+                    highlightFirst: true,
+                    label: t("search.results.fusions"),
+                    onApply: applyFusion,
+                })
             );
         } else {
             const key =
                 others.length === 0 ? "calculator.results.no-fusions" : "calculator.results.no-monster-fusions";
             appendNone(outputLeft, t(key));
         }
-        showOtherResults(outputOther, others);
+        showOtherResults(outputOther, others, applyFusion);
         for (const equip of result.equips) outputRight.appendChild(renderEquipRow(equip));
         if (result.equips.length === 0) appendNone(outputRight, t("calculator.results.no-equips"));
         showRituals(outputRituals, result.rituals);
@@ -339,6 +348,35 @@ function mountCalculatorPage(): void {
         } catch {
             if (run.isCurrent()) setSlotProblem(slot, "lookup-failed");
         }
+    };
+
+    // Takes a fusion from the results into the hand like a user edit: the two cards leave, the result sits
+    // in the slot of the first one and the second slot stays, empty. The results are then asked for again.
+    const applyFusion = (fusion: FusionExpanded): void => {
+        const ids = getSlotIds(
+            slots.map((s) => s.input.value),
+            idsByNameLower
+        );
+        const pair = findFusionSlots(ids, fusion.card1.id, fusion.card2.id);
+        // The hand changed since the results were drawn: nothing to apply, the next refresh will redraw.
+        if (!pair) return;
+        const targetSlot = slots[pair[0]];
+        const spentSlot = slots[pair[1]];
+        if (!targetSlot || !spentSlot) return;
+        // A late name lookup must not overwrite either slot, and the saved hand no longer applies to them.
+        for (const slot of [targetSlot, spentSlot]) {
+            slot.lookup.cancel();
+            slot.savedId = null;
+        }
+        setSlotCard(targetSlot, fusion.result);
+        setSlotCard(spentSlot, null);
+        persist();
+        // The row that had focus is redrawn away. Once the results are back, put the keyboard on the fusions
+        // if there are still some to choose, or on the hand if not; never take focus the user moved meanwhile.
+        void refresh().then(() => {
+            if (document.activeElement && document.activeElement !== document.body) return;
+            qs<HTMLElement>(resultsPanels.hidden ? "#hand-title" : "#fusions-title")?.focus();
+        });
     };
 
     // The hand is saved from the names in the inputs, through the index: it never waits for an artwork
@@ -611,14 +649,22 @@ function hideBlock(where: HTMLElement): void {
     where.classList.add("hidden");
 }
 
-function showOtherResults(where: HTMLElement, fusions: readonly FusionExpanded[]): void {
+function showOtherResults(
+    where: HTMLElement,
+    fusions: readonly FusionExpanded[],
+    onApply: (fusion: FusionExpanded) => void
+): void {
     if (fusions.length === 0) return;
     const title = document.createElement("h3");
     title.className = "m-0 mb-1 font-display text-[17px] font-bold";
     title.textContent = t("calculator.results.non-monster");
     where.appendChild(title);
     where.appendChild(
-        renderFusionTable(fusions, { highlightFirst: false, label: t("calculator.results.non-monster") })
+        renderFusionTable(fusions, {
+            highlightFirst: false,
+            label: t("calculator.results.non-monster"),
+            onApply,
+        })
     );
     where.classList.remove("hidden");
 }

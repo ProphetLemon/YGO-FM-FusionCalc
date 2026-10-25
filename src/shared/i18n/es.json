@@ -70,6 +70,8 @@
     "calculator.results.no-atk": "Sin ATK",
     "calculator.results.no-rituals": "Ninguno para esta mano. Un ritual aparece aquí cuando tienes la carta de ritual y sus tres materiales.",
     "calculator.results.error": "No se pudieron calcular los resultados. Inténtalo de nuevo.",
+    "calculator.results.apply": "Fusionar {{card1}} y {{card2}} en {{result}}",
+    "calculator.results.apply-hint": "Elige una fusión para poner su resultado en la mano en lugar de las dos cartas.",
     "calculator.chain.title": "Cadena óptima de fusiones",
     "calculator.chain.loading": "Calculando…",
     "calculator.chain.no-result": "No se encontró ninguna cadena posible con esta mano.",
