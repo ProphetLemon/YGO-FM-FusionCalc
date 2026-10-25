@@ -5,6 +5,7 @@ import {
     chainSearch,
     getCardByName,
     getCardsIndex,
+    optimizeDeck,
 } from "../../../src/client/lib/api.js";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -58,6 +59,44 @@ describe("ApiError", () => {
 
         expect(err).toBeInstanceOf(ApiError);
         expect(err).toMatchObject({ status: 502, code: undefined });
+    });
+});
+
+describe("optimizeDeck", () => {
+    const request = { deck: [1, 2], trunk: [{ id: 3, count: 1 }], keepNonMonsters: false };
+
+    it("posts the request as JSON and returns the answer", async () => {
+        const answer = { swaps: [], certified: true };
+        const fetchMock = stubFetch(jsonResponse(200, answer));
+
+        await expect(optimizeDeck(request)).resolves.toEqual(answer);
+
+        const [url, init] = fetchMock.mock.calls[0] ?? [];
+        expect(url).toBe("/api/deck/optimize");
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual(request);
+    });
+
+    it("keeps the Retry-After header of a busy answer on the error", async () => {
+        stubFetch(
+            new Response(JSON.stringify({ error: { code: "busy", message: "wait" } }), {
+                status: 503,
+                headers: { "Retry-After": "5" },
+            })
+        );
+
+        const err = await rejectionOf(optimizeDeck(request));
+
+        expect(err).toBeInstanceOf(ApiError);
+        expect(err).toMatchObject({ status: 503, code: "busy", retryAfter: "5" });
+    });
+
+    it("has no retryAfter when the answer sends no header", async () => {
+        stubFetch(jsonResponse(400, { error: { code: "invalid-deck", message: "bad" } }));
+
+        const err = await rejectionOf(optimizeDeck(request));
+
+        expect(err).toMatchObject({ status: 400, code: "invalid-deck", retryAfter: undefined });
     });
 });
 

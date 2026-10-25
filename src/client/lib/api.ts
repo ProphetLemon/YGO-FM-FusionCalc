@@ -3,6 +3,8 @@ import type {
     CardIndexEntry,
     CardSummary,
     ChainSearchResponse,
+    DeckOptimizeRequest,
+    DeckOptimizeResponse,
     EquipExpanded,
     FusionExpanded,
     ResultExpanded,
@@ -19,7 +21,12 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     const res = await fetch(url, init);
     if (!res.ok) {
         const text = await res.text();
-        throw new ApiError(res.status, `HTTP ${res.status} on ${url}: ${text}`, readErrorCode(text));
+        throw new ApiError(
+            res.status,
+            `HTTP ${res.status} on ${url}: ${text}`,
+            readErrorCode(text),
+            res.headers.get("Retry-After") ?? undefined
+        );
     }
     return (await res.json()) as T;
 }
@@ -38,7 +45,9 @@ export class ApiError extends Error {
     constructor(
         public status: number,
         message: string,
-        public code?: string
+        public code?: string,
+        // The raw Retry-After header of the answer, when it had one.
+        public retryAfter?: string
     ) {
         super(message);
         this.name = "ApiError";
@@ -103,6 +112,19 @@ export async function chainSearch(handIds: number[], signal?: AbortSignal): Prom
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ handIds }),
+        signal,
+    });
+}
+
+// The deck optimisation can take several seconds; the caller aborts it when the player moves on.
+export async function optimizeDeck(
+    request: DeckOptimizeRequest,
+    signal?: AbortSignal
+): Promise<DeckOptimizeResponse> {
+    return fetchJson<DeckOptimizeResponse>("/api/deck/optimize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
         signal,
     });
 }
