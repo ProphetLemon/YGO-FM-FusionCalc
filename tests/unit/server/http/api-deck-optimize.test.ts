@@ -1,9 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { request as httpRequest } from "node:http";
+import type { AddressInfo } from "node:net";
 import request from "supertest";
 import { createApp } from "../../../../src/server/app.js";
 import { DECK_SIZE, MAX_TRUNK_COUNT } from "../../../../src/shared/limits.js";
+import type { DeckOptimizeResponse } from "../../../../src/shared/types.js";
+import {
+    createDeckOptimizerService,
+    runInWorker,
+} from "../../../../src/server/workers/deck-optimizer-runner.js";
 
+// These tests score hundreds of thousands of hands; coverage instrumentation and parallel files slow them down.
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
+
+// The default app runs the optimisation in a worker thread, as the server does. The tests that only need an
+// answer use one with a short budget, which runs in a worker too: coverage instrumentation slows an
+// optimisation on this thread several times over.
 const app = createApp();
+const quickApp = createApp({
+    deckOptimizer: createDeckOptimizerService((body) => runInWorker(body, { maxMillis: 800, tabuSteps: 0 })),
+});
 
 const DECK = Array.from({ length: DECK_SIZE }, (_, i) => i + 1);
 const TRUNK = [
@@ -11,23 +27,46 @@ const TRUNK = [
     { id: 397, count: 2 },
 ];
 
-function post(body?: string | object) {
-    const req = request(app).post("/api/deck/optimize");
+// A real answer, for the tests that hold an optimisation open and then let it finish.
+let answer: DeckOptimizeResponse;
+beforeAll(async () => {
+    answer = await runInWorker({ deck: DECK, trunk: [] });
+});
+
+function post(body?: string | object, target = quickApp) {
+    const req = request(target).post("/api/deck/optimize");
     if (body === undefined) return req;
     return typeof body === "string" ? req.type("json").send(body) : req.send(body);
 }
 
 describe("POST /api/deck/optimize", () => {
-    it("200 with the stats, swaps, deck, finals and the truncated flag", async () => {
-        const res = await post({ deck: DECK, trunk: TRUNK });
+    it("200 with the stats, swaps, deck, finals and the flags, computed in a worker thread", async () => {
+        const res = await post({ deck: DECK, trunk: TRUNK }, app);
         expect(res.status).toBe(200);
         expect(Object.keys(res.body).sort()).toEqual(
-            ["current", "deck", "recommended", "swaps", "topFinals", "truncated"].sort()
+            [
+                "certified",
+                "current",
+                "deck",
+                "method",
+                "recommended",
+                "swaps",
+                "topFinals",
+                "truncated",
+            ].sort()
         );
         expect(res.body.deck).toHaveLength(DECK_SIZE);
-        expect(Object.keys(res.body.current).sort()).toEqual(["averageBestAtk", "share1500", "share2000"]);
+        expect(Object.keys(res.body.current).sort()).toEqual([
+            "averageBestAtk",
+            "share1500",
+            "share2000",
+            "shareDead",
+        ]);
         expect(typeof res.body.truncated).toBe("boolean");
+        expect(typeof res.body.certified).toBe("boolean");
+        expect(["exhaustive", "local-search"]).toContain(res.body.method);
         expect(res.body.recommended.averageBestAtk).toBeGreaterThanOrEqual(res.body.current.averageBestAtk);
+        expect(res.body.recommended.shareDead).toBeLessThanOrEqual(res.body.current.shareDead);
     });
 
     it("200 for an empty trunk, which leaves the deck as it was", async () => {
@@ -51,6 +90,100 @@ describe("POST /api/deck/optimize", () => {
         const first = await post({ deck: DECK, trunk: TRUNK });
         const second = await post({ deck: DECK, trunk: TRUNK });
         expect(second.body).toEqual(first.body);
+    });
+
+    describe("while an optimisation runs", () => {
+        // An app whose optimisation starts when asked and ends when `release` is called. `started` settles
+        // once the first request has reached the optimiser, so a test never races the server.
+        function blockedApp() {
+            let release!: (value: DeckOptimizeResponse) => void;
+            let begin!: () => void;
+            const running = new Promise<DeckOptimizeResponse>((resolve) => (release = resolve));
+            const started = new Promise<void>((resolve) => (begin = resolve));
+            const blocked = createApp({
+                deckOptimizer: createDeckOptimizerService(() => {
+                    begin();
+                    return running;
+                }),
+            });
+            return { blocked, release, started };
+        }
+
+        it("503 busy for a second request, with a Retry-After, and the first still gets its answer", async () => {
+            const { blocked, release, started } = blockedApp();
+            const first = post({ deck: DECK, trunk: TRUNK }, blocked).then((res) => res);
+            await started;
+            const second = await post({ deck: DECK, trunk: TRUNK }, blocked);
+            expect(second.status).toBe(503);
+            expect(second.body.error.code).toBe("busy");
+            expect(second.headers["retry-after"]).toBe("5");
+            release(answer);
+            expect((await first).status).toBe(200);
+            expect((await post({ deck: DECK, trunk: [] }, quickApp)).status).toBe(200);
+        });
+
+        it("validates the body before it looks at whether it is busy", async () => {
+            const { blocked, release, started } = blockedApp();
+            const first = post({ deck: DECK, trunk: TRUNK }, blocked).then((res) => res);
+            await started;
+            const invalid = await post({ deck: DECK.slice(1), trunk: TRUNK }, blocked);
+            expect(invalid.status).toBe(400);
+            release(answer);
+            await first;
+        });
+    });
+
+    it("aborts the optimisation and frees the slot when the client disconnects", async () => {
+        let begin!: () => void;
+        const started = new Promise<void>((resolve) => (begin = resolve));
+        let aborted = false;
+        const server = createApp({
+            deckOptimizer: createDeckOptimizerService((_body, _options, signal) => {
+                if (aborted) return Promise.resolve(answer);
+                begin();
+                return new Promise((_resolve, reject) =>
+                    signal?.addEventListener("abort", () => {
+                        aborted = true;
+                        reject(new Error("aborted"));
+                    })
+                );
+            }),
+        }).listen(0);
+        try {
+            const { port } = server.address() as AddressInfo;
+            const payload = JSON.stringify({ deck: DECK, trunk: TRUNK });
+            const client = httpRequest({
+                port,
+                method: "POST",
+                path: "/api/deck/optimize",
+                headers: {
+                    "content-type": "application/json",
+                    "content-length": Buffer.byteLength(payload),
+                },
+            });
+            client.on("error", () => undefined);
+            client.end(payload);
+            await started;
+            client.destroy();
+            await vi.waitFor(() => expect(aborted).toBe(true));
+            // The slot is free again: the next request is answered, not refused as busy.
+            const next = await request(server).post("/api/deck/optimize").send({ deck: DECK, trunk: TRUNK });
+            expect(next.status).toBe(200);
+        } finally {
+            server.close();
+        }
+    });
+
+    it("500 internal-error, without the failure's detail, when the optimisation fails", async () => {
+        const failing = createApp({
+            deckOptimizer: createDeckOptimizerService(async () => {
+                throw new Error("secret worker detail");
+            }),
+        });
+        const res = await post({ deck: DECK, trunk: TRUNK }, failing);
+        expect(res.status).toBe(500);
+        expect(res.body.error.code).toBe("internal-error");
+        expect(res.text).not.toContain("secret worker detail");
     });
 
     const INVALID_DECKS: ReadonlyArray<readonly [string, unknown]> = [

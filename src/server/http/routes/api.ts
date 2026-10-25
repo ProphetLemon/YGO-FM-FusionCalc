@@ -1,16 +1,24 @@
-import { type Request, type Response, Router } from "express";
+import { type NextFunction, type Request, type Response, Router } from "express";
 import express from "express";
 import { DECK_SIZE, MAX_HAND_SIZE, MAX_TRUNK_COUNT } from "../../../shared/limits.js";
 import type { DeckOptimizeRequest } from "../../../shared/types.js";
 import { findCombinations } from "../../domain/calculator.js";
 import { findBestChains } from "../../domain/chain-search.js";
-import { optimizeDeck } from "../../domain/deck-optimizer.js";
 import { getEquipsFor } from "../../domain/equips.js";
 import { getFusionsFor } from "../../domain/fusions.js";
 import { getResultsFor } from "../../domain/results.js";
 import { findCardByExactName } from "../../domain/search.js";
 import { toCardSummary } from "../../domain/cards.js";
 import { getAllCards, getCardById, getCardIndex } from "../../data/store.js";
+import {
+    OptimizerAbortedError,
+    OptimizerBusyError,
+    createDeckOptimizerService,
+    type DeckOptimizerService,
+} from "../../workers/deck-optimizer-runner.js";
+
+// Seconds a client is told to wait before it asks for a deck optimisation again.
+const BUSY_RETRY_SECONDS = 5;
 
 interface ApiError {
     code: string;
@@ -117,7 +125,12 @@ function readDeckRequest(req: Request, res: Response): DeckOptimizeRequest | nul
     };
 }
 
-export function apiRouter(): Router {
+export interface ApiDependencies {
+    // Runs the deck optimisation; replaceable so tests need no worker thread.
+    deckOptimizer?: DeckOptimizerService;
+}
+
+export function apiRouter({ deckOptimizer = createDeckOptimizerService() }: ApiDependencies = {}): Router {
     const router = Router();
     router.use(express.json({ limit: "32kb" }));
 
@@ -209,10 +222,28 @@ export function apiRouter(): Router {
         res.json({ chains, truncated });
     });
 
-    router.post("/deck/optimize", (req: Request, res: Response): void => {
+    router.post("/deck/optimize", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         const request = readDeckRequest(req, res);
         if (request === null) return;
-        res.json(optimizeDeck(request));
+        // The client closing the connection before the answer is sent stops the optimisation.
+        const abort = new AbortController();
+        res.on("close", () => {
+            if (!res.writableEnded) abort.abort();
+        });
+        try {
+            res.json(await deckOptimizer.optimize(request, abort.signal));
+        } catch (error) {
+            if (error instanceof OptimizerAbortedError) return;
+            if (!(error instanceof OptimizerBusyError)) {
+                next(error);
+                return;
+            }
+            res.setHeader("Retry-After", String(BUSY_RETRY_SECONDS));
+            sendError(res, 503, {
+                code: "busy",
+                message: "Another deck optimisation is running; try again in a few seconds",
+            });
+        }
     });
 
     return router;

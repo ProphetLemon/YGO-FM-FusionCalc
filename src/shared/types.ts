@@ -122,12 +122,15 @@ export interface DeckOptimizeRequest {
     keepNonMonsters?: boolean;
 }
 
-// How a deck plays over random 5-card hands: the strongest monster each hand can make.
+// How a deck plays over all of its 5-card hands: the strongest monster each hand can make. Every number is
+// exact, computed over every possible hand, not estimated.
 export interface DeckStats {
     averageBestAtk: number;
     // Share of hands, from 0 to 1, whose best monster reaches 1500 / 2000 ATK.
     share1500: number;
     share2000: number;
+    // Share of hands, from 0 to 1, whose best monster is 1000 ATK or less: the hands that do nothing.
+    shareDead: number;
 }
 
 export interface DeckSwap {
@@ -137,7 +140,8 @@ export interface DeckSwap {
 
 export interface DeckFinal {
     card: CardSummary;
-    // Share of hands, from 0 to 1, whose best monster is this card made by a fusion.
+    // Share of hands, from 0 to 1, whose best play is this card made by a fusion that beats every card
+    // played as it is (and every ritual result).
     share: number;
 }
 
@@ -149,6 +153,17 @@ export interface DeckOptimizeResponse {
     deck: CardSummary[];
     // The fusions the recommended deck relies on most, up to 8.
     topFinals: DeckFinal[];
-    // True when a time or evaluation budget stopped the search before it finished.
+    // Only for method "local-search": true when the time budget ended before the search could confirm that no
+    // single swap with any owned card improves `deck`. The deck is then the best found so far. Always false for
+    // "exhaustive".
     truncated: boolean;
+    // True when `deck` is the best possible deck under the request's constraints, proven by trying every deck.
+    // With `keepNonMonsters` (the default) those constraints pin the non-monsters of the current deck and keep
+    // spare non-monsters out; without it every owned card may move. False for a deck found by local search:
+    // unless `truncated`, no single swap with any owned card improves it, but a swap of several cards at once
+    // might.
+    certified: boolean;
+    method: DeckOptimizeMethod;
 }
+
+export type DeckOptimizeMethod = "exhaustive" | "local-search";

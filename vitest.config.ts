@@ -17,6 +17,8 @@ export default defineConfig({
                 "src/**/*.d.ts",
                 "src/shared/types.ts",
                 "src/server/index.ts",
+                // Runs in a worker thread, where the coverage of this process does not reach.
+                "src/server/workers/deck-optimizer-worker.ts",
                 "src/server/logger.ts",
                 "src/client/**/*.ts",
             ],

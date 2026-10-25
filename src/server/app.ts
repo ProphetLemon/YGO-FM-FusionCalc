@@ -6,7 +6,7 @@ import express, { type Express, type NextFunction, type Request, type Response }
 import { pinoHttp } from "pino-http";
 import { loadStore } from "./data/store.js";
 import { i18nMiddleware } from "./http/middleware/i18n.js";
-import { apiRouter } from "./http/routes/api.js";
+import { apiRouter, type ApiDependencies } from "./http/routes/api.js";
 import { langRouter } from "./http/routes/lang.js";
 import { legacyRedirectsRouter } from "./http/routes/legacy.js";
 import { viewsRouter } from "./http/routes/views.js";
@@ -69,7 +69,7 @@ function handleError(err: unknown, req: Request, res: Response, _next: NextFunct
     res.status(status).type("text/plain").send(message);
 }
 
-export function createApp(): Express {
+export function createApp(dependencies: ApiDependencies = {}): Express {
     loadStore();
 
     const app = express();
@@ -86,7 +86,7 @@ export function createApp(): Express {
     app.use("/public", express.static(path.join(projectRoot, "public")));
     app.use("/data", express.static(path.join(projectRoot, "data")));
 
-    app.use("/api", apiRouter());
+    app.use("/api", apiRouter(dependencies));
     app.use(legacyRedirectsRouter());
     app.use(langRouter());
     app.use(viewsRouter());
