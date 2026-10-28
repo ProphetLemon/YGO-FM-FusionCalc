@@ -1,6 +1,6 @@
-import type { Card, CardSummary } from "../../shared/types.js";
+import type { Card, CardIndexEntry, CardSummary } from "../../shared/types.js";
 import imageOverrides from "../../shared/card-image-overrides.json" with { type: "json" };
-import { getCardTypeName } from "../data/store.js";
+import { getCardById, getCardIndex, getCardTypeName } from "../data/store.js";
 
 const FIRST_NON_MONSTER_TYPE = 20;
 
@@ -38,4 +38,25 @@ export function toCardSummary(card: Card): CardSummary {
         imageCode: imageCodeOf(card),
         isMonster: isMonster(card),
     };
+}
+
+export function toCardIndexEntry(card: Card): CardIndexEntry {
+    return {
+        id: card.Id,
+        name: card.Name,
+        type: card.Type,
+        typeName: getCardTypeName(card.Type),
+        attack: card.Attack,
+        defense: card.Defense,
+        imageCode: imageCodeOf(card),
+        isMonster: isMonster(card),
+    };
+}
+
+// Every card, sorted by name, with what a page needs to draw it.
+export function listCardIndex(): CardIndexEntry[] {
+    return getCardIndex().flatMap(({ id }) => {
+        const card = getCardById(id);
+        return card ? [toCardIndexEntry(card)] : [];
+    });
 }

@@ -8,8 +8,8 @@ import { getEquipsFor } from "../../domain/equips.js";
 import { getFusionsFor } from "../../domain/fusions.js";
 import { getResultsFor } from "../../domain/results.js";
 import { findCardByExactName } from "../../domain/search.js";
-import { toCardSummary } from "../../domain/cards.js";
-import { getAllCards, getCardById, getCardIndex } from "../../data/store.js";
+import { listCardIndex, toCardSummary } from "../../domain/cards.js";
+import { getAllCards, getCardById } from "../../data/store.js";
 import {
     OptimizerAbortedError,
     OptimizerBusyError,
@@ -165,7 +165,7 @@ export function apiRouter({ deckOptimizer = createDeckOptimizerService() }: ApiD
     router.use(express.json({ limit: "32kb" }));
 
     router.get("/cards-index", (_req: Request, res: Response): void => {
-        res.json({ cards: getCardIndex() });
+        res.json({ cards: listCardIndex() });
     });
 
     router.get("/cards", (req: Request, res: Response): void => {

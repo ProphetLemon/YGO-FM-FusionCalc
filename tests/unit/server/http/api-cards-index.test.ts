@@ -15,4 +15,29 @@ describe("GET /api/cards-index", () => {
         expect(typeof first.name).toBe("string");
         expect(typeof first.type).toBe("number");
     });
+
+    it("carries what a page needs to draw each card", async () => {
+        const res = await request(app).get("/api/cards-index");
+        const byName = new Map<string, Record<string, unknown>>(
+            res.body.cards.map((card: { name: string }) => [card.name, card])
+        );
+        expect(byName.get("Blue-eyes White Dragon")).toMatchObject({
+            typeName: "Dragon",
+            attack: 3000,
+            defense: 2500,
+            isMonster: true,
+        });
+        const spell = res.body.cards.find((card: { isMonster: boolean }) => !card.isMonster);
+        expect(spell).toMatchObject({ isMonster: false, attack: expect.any(Number) });
+        expect(Object.keys(res.body.cards[0]).sort()).toEqual([
+            "attack",
+            "defense",
+            "id",
+            "imageCode",
+            "isMonster",
+            "name",
+            "type",
+            "typeName",
+        ]);
+    });
 });

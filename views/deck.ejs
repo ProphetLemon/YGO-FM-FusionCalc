@@ -41,13 +41,20 @@
                         <dd id="spare-kinds" class="m-0 font-bold tabular-nums"></dd>
                     </dl>
                     <p id="deck-no-spare" hidden class="m-0 mb-4 text-sm font-bold"><%= t('deck.collection.no-spare') %></p>
-                    <label class="flex items-start gap-3 mb-4 cursor-pointer">
-                        <input type="checkbox" id="keep-nonmonsters" checked class="mt-0.5 size-6 shrink-0 accent-wb-blue" aria-describedby="keep-hint" />
-                        <span>
-                            <span class="block font-bold"><%= t('deck.keep.label') %></span>
-                            <span id="keep-hint" class="block text-sm text-wb-mute"><%= t('deck.keep.hint') %></span>
-                        </span>
-                    </label>
+                    <div id="deck-locks" class="mb-4">
+                        <div class="flex flex-wrap items-baseline justify-between gap-x-3 mb-1">
+                            <h3 class="m-0 text-base font-bold"><%= t('deck.lock.title') %></h3>
+                            <p id="lock-count" aria-live="polite" class="m-0 text-sm font-bold tabular-nums"></p>
+                        </div>
+                        <p id="lock-hint" class="m-0 mb-3 text-sm text-wb-mute"><%= t('deck.lock.hint') %></p>
+                        <div id="deck-lock-grid" aria-describedby="lock-hint"></div>
+                    </div>
+                    <details id="deck-trunk" class="mb-4">
+                        <summary id="deck-trunk-summary" class="min-h-11 py-2 font-bold cursor-pointer"></summary>
+                        <div class="sink max-h-80 overflow-y-auto" tabindex="0" role="region" aria-labelledby="deck-trunk-summary">
+                            <ul id="deck-trunk-list" class="m-0 p-0 list-none"></ul>
+                        </div>
+                    </details>
                     <button type="button" id="deck-compute" class="wb-btn aria-disabled:bg-wb-disabled aria-disabled:text-wb-disabled-text aria-disabled:cursor-wait">
                         <%= t('deck.btn.compute') %>
                     </button>

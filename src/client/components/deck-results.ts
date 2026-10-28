@@ -1,12 +1,14 @@
-import type { CardSummary, DeckFinal, DeckOptimizeResponse } from "../../shared/types.js";
-import { formatNumber, statRows, verdictOf, type StatRow } from "../lib/deck-view.js";
+import type { CardSummary, DeckFinal, DeckLock, DeckOptimizeResponse } from "../../shared/types.js";
+import { formatNumber, markLockedSlots, statRows, verdictOf, type StatRow } from "../lib/deck-view.js";
 import { getLang, t } from "../lib/i18n.js";
 import { createCardTile } from "./card-tile.js";
+import { createLockIcon } from "./lock-icon.js";
 
 export interface DeckResultsContext {
     // The ids of the deck that was sent, in the slots the answer's deck uses, to mark the cards that are new.
     currentDeck: readonly number[];
-    keepNonMonsters: boolean;
+    // The cards the request asked to keep, to mark them in the recommended deck.
+    locked: readonly DeckLock[];
 }
 
 export interface DeckResults {
@@ -66,7 +68,7 @@ function renderVerdict(answer: DeckOptimizeResponse, context: DeckResultsContext
         "deck-result-title"
     );
     heading.tabIndex = -1;
-    const verdict = verdictOf(answer, context.keepNonMonsters);
+    const verdict = verdictOf(answer, context.locked.length > 0);
     body.appendChild(el("p", "m-0 font-bold", t(`deck.verdict.${verdict.claim}`)));
     if (verdict.noSwaps) {
         const key = verdict.claim.startsWith("certified")
@@ -229,10 +231,20 @@ function renderDeck(answer: DeckOptimizeResponse, context: DeckResultsContext): 
         "ul",
         "m-0 p-0 list-none grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-x-2.5 gap-y-3 justify-items-center"
     );
+    const lockedSlots = markLockedSlots(answer.deck, context.locked);
     answer.deck.forEach((card, slot) => {
         const isNew = context.currentDeck[slot] !== card.id;
         const item = el("li", "flex flex-col items-center gap-1");
         item.appendChild(createCardTile(card, { size: "s" }));
+        if (lockedSlots[slot]) {
+            item.dataset.locked = "true";
+            const badge = el(
+                "span",
+                "inline-flex items-center gap-1 px-1.5 text-sm font-bold text-white bg-wb-blue"
+            );
+            badge.append(createLockIcon(true), t("deck.grid.locked"));
+            item.appendChild(badge);
+        }
         if (isNew) {
             item.dataset.new = "true";
             item.appendChild(

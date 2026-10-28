@@ -1,7 +1,13 @@
 // Logic of the best-deck page that needs no DOM: reading a chosen file, what the request carries, which claim
 // the answer lets the page make, the rows of the stats table and how a failed request is told apart.
 
-import type { DeckOptimizeRequest, DeckOptimizeResponse, DeckStats } from "../../shared/types.js";
+import type {
+    CardIndexEntry,
+    DeckLock,
+    DeckOptimizeRequest,
+    DeckOptimizeResponse,
+    DeckStats,
+} from "../../shared/types.js";
 import { ApiError } from "./api.js";
 import { MAX_SAVE_FILE_BYTES, parseFmSaves, type FmSave, type ParseSavesResult } from "./fm-save.js";
 
@@ -38,17 +44,68 @@ export function summarizeSave(save: FmSave): SaveSummary {
     };
 }
 
+export type CardLookup = ReadonlyMap<number, CardIndexEntry>;
+
+// Which slots of the deck start locked: every card that is not a monster. The player unlocks the ones they
+// would let the optimiser replace.
+export function defaultLocks(deck: readonly number[], cards: CardLookup): boolean[] {
+    return deck.map((id) => cards.get(id)?.isMonster === false);
+}
+
+// The locked slots as the request states them: how many copies of each card must stay.
+export function lockedCards(deck: readonly number[], locked: readonly boolean[]): DeckLock[] {
+    const counts = new Map<number, number>();
+    deck.forEach((id, slot) => {
+        if (locked[slot]) counts.set(id, (counts.get(id) ?? 0) + 1);
+    });
+    return [...counts].map(([id, count]) => ({ id, count }));
+}
+
+// Which slots of the recommended deck are the locked copies. Copies of a card are identical, so a lock of n
+// copies marks the first n copies of that card.
+export function markLockedSlots(deck: readonly { id: number }[], locked: readonly DeckLock[]): boolean[] {
+    const left = new Map(locked.map(({ id, count }) => [id, count]));
+    return deck.map(({ id }) => {
+        const remaining = left.get(id) ?? 0;
+        if (remaining === 0) return false;
+        left.set(id, remaining - 1);
+        return true;
+    });
+}
+
+export interface SpareRow {
+    card: CardIndexEntry;
+    count: number;
+}
+
+// The trunk with its cards: monsters first, strongest ATK first, then the other cards by name. A card the
+// catalog does not know is left out, since there is nothing to show of it.
+export function spareRows(save: FmSave, cards: CardLookup): SpareRow[] {
+    const rows: SpareRow[] = [];
+    for (const { id, count } of save.trunk) {
+        const card = cards.get(id);
+        if (card) rows.push({ card, count });
+    }
+    return rows.sort((a, b) => {
+        if (a.card.isMonster !== b.card.isMonster) return a.card.isMonster ? -1 : 1;
+        if (a.card.isMonster && a.card.attack !== b.card.attack) return b.card.attack - a.card.attack;
+        return a.card.name.localeCompare(b.card.name);
+    });
+}
+
 // The request is built field by field, so nothing else of the save (and never the player name) can leak into
-// what is sent: only card ids and counts.
-export function buildDeckRequest(save: FmSave, keepNonMonsters: boolean): DeckOptimizeRequest {
+// what is sent: only card ids and counts. The page locks cards one by one, so it never asks to keep every
+// non-monster as a group.
+export function buildDeckRequest(save: FmSave, locked: readonly DeckLock[]): DeckOptimizeRequest {
     return {
         deck: [...save.deck],
         trunk: save.trunk.map(({ id, count }) => ({ id, count })),
-        keepNonMonsters,
+        keepNonMonsters: false,
+        locked: locked.map(({ id, count }) => ({ id, count })),
     };
 }
 
-export type VerdictClaim = "certified" | "certified-keep" | "local" | "truncated";
+export type VerdictClaim = "certified" | "certified-locked" | "local" | "truncated";
 
 export interface Verdict {
     claim: VerdictClaim;
@@ -60,11 +117,11 @@ export interface Verdict {
 // ran out of time says so even when the answer also carries the flag of a certified deck.
 export function verdictOf(
     answer: Pick<DeckOptimizeResponse, "certified" | "truncated" | "swaps">,
-    keepNonMonsters: boolean
+    hasLocks: boolean
 ): Verdict {
     const noSwaps = answer.swaps.length === 0;
     if (answer.truncated) return { claim: "truncated", noSwaps };
-    if (answer.certified) return { claim: keepNonMonsters ? "certified-keep" : "certified", noSwaps };
+    if (answer.certified) return { claim: hasLocks ? "certified-locked" : "certified", noSwaps };
     return { claim: "local", noSwaps };
 }
 

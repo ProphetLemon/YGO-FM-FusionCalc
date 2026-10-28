@@ -58,11 +58,12 @@ export interface CardSummary {
     isMonster: boolean;
 }
 
-export interface CardIndexEntry {
-    id: number;
-    name: string;
-    type: number;
-}
+// One card of the catalog `GET /api/cards-index` serves: enough to name a card, tell its kind and draw its
+// tile, without a request per card.
+export type CardIndexEntry = Pick<
+    CardSummary,
+    "id" | "name" | "type" | "typeName" | "attack" | "defense" | "imageCode" | "isMonster"
+>;
 
 export interface FusionExpanded {
     card1: CardSummary;

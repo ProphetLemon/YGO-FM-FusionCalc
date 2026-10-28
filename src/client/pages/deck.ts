@@ -1,11 +1,16 @@
 import { mountNavbar } from "../components/navbar.js";
 import { renderDeckResults } from "../components/deck-results.js";
-import { optimizeDeck } from "../lib/api.js";
+import { createLockGrid, renderSpareList, type LockGrid } from "../components/deck-locks.js";
+import { getCardsIndex, optimizeDeck } from "../lib/api.js";
 import {
     buildDeckRequest,
     classifyDeckFailure,
+    defaultLocks,
+    lockedCards,
     readSaveFile,
+    spareRows,
     summarizeSave,
+    type CardLookup,
     type DeckFailure,
 } from "../lib/deck-view.js";
 import { clear, qs } from "../lib/dom.js";
@@ -28,7 +33,11 @@ function mountDeckPage(): void {
     const spareCount = qs<HTMLElement>("#spare-count");
     const spareKinds = qs<HTMLElement>("#spare-kinds");
     const noSpare = qs<HTMLElement>("#deck-no-spare");
-    const keep = qs<HTMLInputElement>("#keep-nonmonsters");
+    const lockCount = qs<HTMLElement>("#lock-count");
+    const lockHost = qs<HTMLElement>("#deck-lock-grid");
+    const trunk = qs<HTMLDetailsElement>("#deck-trunk");
+    const trunkSummary = qs<HTMLElement>("#deck-trunk-summary");
+    const trunkList = qs<HTMLElement>("#deck-trunk-list");
     const computeBtn = qs<HTMLButtonElement>("#deck-compute");
     const computeMsg = qs<HTMLElement>("#deck-compute-msg");
     const status = qs<HTMLElement>("#deck-status");
@@ -47,7 +56,11 @@ function mountDeckPage(): void {
         !spareCount ||
         !spareKinds ||
         !noSpare ||
-        !keep ||
+        !lockCount ||
+        !lockHost ||
+        !trunk ||
+        !trunkSummary ||
+        !trunkList ||
         !computeBtn ||
         !computeMsg ||
         !status ||
@@ -60,6 +73,10 @@ function mountDeckPage(): void {
 
     let saves: FmSave[] = [];
     let selected = 0;
+    // The catalog of cards, which names the cards of the save, and the lock of each slot of the chosen deck.
+    let cards: CardLookup = new Map();
+    let locked: boolean[] = [];
+    let lockGrid: LockGrid | null = null;
     // The request in flight, if any, and the timer of a "busy" countdown, if one is running.
     let running: AbortController | null = null;
     let countdown: number | null = null;
@@ -78,7 +95,7 @@ function mountDeckPage(): void {
         computeBtn.textContent = computing ? t("deck.btn.computing") : t("deck.btn.compute");
     };
 
-    // Whatever was calculated, or is being, no longer matches the file or the options once they change.
+    // Whatever was calculated, or is being, no longer matches the file or the locks once they change.
     const discardAnswer = (): void => {
         running?.abort();
         running = null;
@@ -113,6 +130,45 @@ function mountDeckPage(): void {
         noSpare.hidden = summary.spareCards > 0;
     };
 
+    const renderLockCount = (): void => {
+        lockCount.textContent = t("deck.lock.count", {
+            locked: locked.filter(Boolean).length,
+            total: locked.length,
+        });
+    };
+
+    const toggleLock = (slot: number): void => {
+        locked[slot] = !locked[slot];
+        lockGrid?.update(locked);
+        renderLockCount();
+        discardAnswer();
+    };
+
+    // The deck as tiles to lock, and the spare cards, for the chosen save. Every choice of save starts from the
+    // default locks.
+    const renderCards = (): void => {
+        const save = saves[selected];
+        if (!save) return;
+        locked = defaultLocks(save.deck, cards);
+        const slots = save.deck.flatMap((id) => {
+            const card = cards.get(id);
+            return card ? [card] : [];
+        });
+        lockGrid = createLockGrid(slots, locked, toggleLock);
+        clear(lockHost);
+        lockHost.appendChild(lockGrid.element);
+        renderLockCount();
+
+        const rows = spareRows(save, cards);
+        clear(trunkList);
+        renderSpareList(trunkList, rows);
+        trunkSummary.textContent = t("deck.trunk.summary", {
+            count: summarizeSave(save).spareCards.toLocaleString(getLang()),
+        });
+        trunk.hidden = rows.length === 0;
+        trunk.open = false;
+    };
+
     const renderChooser = (): void => {
         clear(chooserOptions);
         chooser.hidden = saves.length < 2;
@@ -132,6 +188,7 @@ function mountDeckPage(): void {
                 selected = index;
                 discardAnswer();
                 renderSummary();
+                renderCards();
             });
             const text = document.createElement("span");
             const name = document.createElement("span");
@@ -163,7 +220,7 @@ function mountDeckPage(): void {
         resetFile();
         const file = fileInput.files?.[0];
         if (!file) return;
-        void readSaveFile(file).then((read) => {
+        void readSaveFile(file).then(async (read) => {
             // A newer choice, or none, replaced this file while it was being read.
             if (fileInput.files?.[0] !== file) return;
             if (!read.ok) {
@@ -171,14 +228,21 @@ function mountDeckPage(): void {
                 showMessage(fileMsg, t(`deck.error.${read.error}`, { max }));
                 return;
             }
+            // The save holds only card numbers: the catalog gives them a name, a kind and an image.
+            try {
+                cards = new Map((await getCardsIndex()).map((card) => [card.id, card]));
+            } catch {
+                if (fileInput.files?.[0] === file) showMessage(fileMsg, t("deck.error.catalog"));
+                return;
+            }
+            if (fileInput.files?.[0] !== file) return;
             saves = read.saves;
             renderChooser();
             renderSummary();
+            renderCards();
             collection.hidden = false;
         });
     });
-
-    keep.addEventListener("change", discardAnswer);
 
     const failureMessage = (failure: DeckFailure): string => t(`deck.error.${failure.kind}`);
 
@@ -221,11 +285,11 @@ function mountDeckPage(): void {
 
         const controller = new AbortController();
         running = controller;
-        const keepNonMonsters = keep.checked;
+        const lockedNow = lockedCards(save.deck, locked);
         try {
-            const answer = await optimizeDeck(buildDeckRequest(save, keepNonMonsters), controller.signal);
+            const answer = await optimizeDeck(buildDeckRequest(save, lockedNow), controller.signal);
             if (controller.signal.aborted) return;
-            const view = renderDeckResults(answer, { currentDeck: save.deck, keepNonMonsters });
+            const view = renderDeckResults(answer, { currentDeck: save.deck, locked: lockedNow });
             results.appendChild(view.element);
             loading.hidden = true;
             results.hidden = false;
@@ -239,7 +303,7 @@ function mountDeckPage(): void {
             );
             view.heading.focus();
         } catch (error) {
-            // Aborted on purpose (new file, new options): the page already moved on.
+            // Aborted on purpose (new file, new locks): the page already moved on.
             if (controller.signal.aborted) return;
             loading.hidden = true;
             hint.hidden = false;

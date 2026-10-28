@@ -1,4 +1,4 @@
-import type { CardIndexEntry, CardSummary } from "../../shared/types.js";
+import type { CardSummary } from "../../shared/types.js";
 import { getCardByNameLower, getCardIndex } from "../data/store.js";
 import { toCardSummary } from "./cards.js";
 
@@ -7,10 +7,12 @@ export function findCardByExactName(name: string): CardSummary | null {
     return card ? toCardSummary(card) : null;
 }
 
-export function findCardsByPrefix(prefix: string, limit = 10): CardIndexEntry[] {
+type NamedCard = ReturnType<typeof getCardIndex>[number];
+
+export function findCardsByPrefix(prefix: string, limit = 10): NamedCard[] {
     const normalised = prefix.toLowerCase();
     if (normalised.length === 0) return [];
-    const matches: CardIndexEntry[] = [];
+    const matches: NamedCard[] = [];
     for (const entry of getCardIndex()) {
         if (entry.name.toLowerCase().startsWith(normalised)) {
             matches.push(entry);

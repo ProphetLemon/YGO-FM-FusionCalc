@@ -3,15 +3,20 @@ import { ApiError } from "../../../src/client/lib/api.js";
 import {
     buildDeckRequest,
     classifyDeckFailure,
+    defaultLocks,
     formatNumber,
+    lockedCards,
+    markLockedSlots,
     parseRetryAfter,
     readSaveFile,
+    spareRows,
     statRows,
     summarizeSave,
     verdictOf,
+    type CardLookup,
 } from "../../../src/client/lib/deck-view.js";
 import { MAX_SAVE_FILE_BYTES, type FmSave } from "../../../src/client/lib/fm-save.js";
-import type { DeckStats } from "../../../src/shared/types.js";
+import type { CardIndexEntry, DeckStats } from "../../../src/shared/types.js";
 
 const SAVE: FmSave = {
     deck: Array.from({ length: 40 }, (_, i) => i + 1),
@@ -88,24 +93,114 @@ describe("summarizeSave", () => {
     });
 });
 
+function entry(id: number, over: Partial<CardIndexEntry> = {}): CardIndexEntry {
+    return {
+        id,
+        name: `Card ${id}`,
+        type: 0,
+        typeName: "Dragon",
+        attack: 1000,
+        defense: 1000,
+        imageCode: null,
+        isMonster: true,
+        ...over,
+    };
+}
+
 describe("buildDeckRequest", () => {
-    it("carries only the deck, the trunk and the option", () => {
+    it("carries only the deck, the trunk and the locks, and never asks to keep every non-monster", () => {
         const withExtra = { ...SAVE, name: "PLAYER", trunk: [{ id: 100, count: 2, name: "x" }] };
 
-        const request = buildDeckRequest(withExtra as FmSave, false);
+        const request = buildDeckRequest(withExtra as FmSave, [{ id: 3, count: 1 }]);
 
-        expect(request).toEqual({ deck: SAVE.deck, trunk: [{ id: 100, count: 2 }], keepNonMonsters: false });
+        expect(request).toEqual({
+            deck: SAVE.deck,
+            trunk: [{ id: 100, count: 2 }],
+            keepNonMonsters: false,
+            locked: [{ id: 3, count: 1 }],
+        });
         expect(JSON.stringify(request)).not.toContain("PLAYER");
     });
 
-    it("sends keepNonMonsters at the top level, true when asked", () => {
-        expect(buildDeckRequest(SAVE, true).keepNonMonsters).toBe(true);
+    it("sends locked even when nothing is locked", () => {
+        expect(buildDeckRequest(SAVE, []).locked).toEqual([]);
     });
 
     it("copies the arrays, so the save cannot change under a request", () => {
-        const request = buildDeckRequest(SAVE, true);
+        const locks = [{ id: 3, count: 1 }];
+        const request = buildDeckRequest(SAVE, locks);
         request.deck[0] = 999;
+        request.locked![0]!.count = 9;
         expect(SAVE.deck[0]).toBe(1);
+        expect(locks[0]?.count).toBe(1);
+    });
+});
+
+describe("defaultLocks", () => {
+    const cards: CardLookup = new Map([
+        [1, entry(1)],
+        [2, entry(2, { isMonster: false, typeName: "Magic" })],
+        [3, entry(3, { isMonster: false, typeName: "Equip" })],
+    ]);
+
+    it("locks every slot that holds a non-monster and leaves the monsters free", () => {
+        expect(defaultLocks([1, 2, 1, 3], cards)).toEqual([false, true, false, true]);
+    });
+
+    it("leaves a card the catalog does not know unlocked", () => {
+        expect(defaultLocks([9], cards)).toEqual([false]);
+    });
+});
+
+describe("lockedCards", () => {
+    it("counts the copies locked of each card, in the order they first appear", () => {
+        const deck = [5, 7, 5, 5, 7];
+
+        expect(lockedCards(deck, [true, false, true, false, true])).toEqual([
+            { id: 5, count: 2 },
+            { id: 7, count: 1 },
+        ]);
+    });
+
+    it("is empty when nothing is locked", () => {
+        expect(lockedCards([5, 7], [false, false])).toEqual([]);
+    });
+});
+
+describe("markLockedSlots", () => {
+    it("marks as many copies of a card as were locked", () => {
+        const deck = [{ id: 5 }, { id: 7 }, { id: 5 }, { id: 5 }];
+
+        expect(markLockedSlots(deck, [{ id: 5, count: 2 }])).toEqual([true, false, true, false]);
+    });
+
+    it("marks nothing without locks", () => {
+        expect(markLockedSlots([{ id: 5 }], [])).toEqual([false]);
+    });
+});
+
+describe("spareRows", () => {
+    const cards: CardLookup = new Map([
+        [1, entry(1, { name: "Weak", attack: 500 })],
+        [2, entry(2, { name: "Strong", attack: 3000 })],
+        [3, entry(3, { name: "Alpha", attack: 500 })],
+        [4, entry(4, { name: "Zed spell", isMonster: false, typeName: "Magic", attack: 0 })],
+        [5, entry(5, { name: "Axe", isMonster: false, typeName: "Equip", attack: 0 })],
+    ]);
+    const trunk = (ids: number[]) => ({
+        deck: [],
+        trunk: ids.map((id) => ({ id, count: id })),
+    });
+
+    it("puts monsters first by ATK, then the other cards by name", () => {
+        const rows = spareRows(trunk([4, 1, 5, 2, 3]), cards);
+
+        expect(rows.map((row) => row.card.name)).toEqual(["Strong", "Alpha", "Weak", "Axe", "Zed spell"]);
+        expect(rows.map((row) => row.count)).toEqual([2, 3, 1, 5, 4]);
+    });
+
+    it("leaves out a card the catalog does not know", () => {
+        expect(spareRows(trunk([1, 99]), cards)).toHaveLength(1);
     });
 });
 
@@ -113,13 +208,8 @@ describe("verdictOf", () => {
     const swaps = [{}] as never[];
 
     it.each([
-        ["certified", { certified: true, truncated: false, swaps }, false, "certified"],
-        [
-            "certified with the keep option on",
-            { certified: true, truncated: false, swaps },
-            true,
-            "certified-keep",
-        ],
+        ["certified without locks", { certified: true, truncated: false, swaps }, false, "certified"],
+        ["certified with locks", { certified: true, truncated: false, swaps }, true, "certified-locked"],
         ["a local search that finished", { certified: false, truncated: false, swaps }, true, "local"],
         ["a search that ran out of time", { certified: false, truncated: true, swaps }, true, "truncated"],
         [
@@ -128,8 +218,8 @@ describe("verdictOf", () => {
             false,
             "truncated",
         ],
-    ] as const)("%s says %s", (_label, answer, keep, claim) => {
-        expect(verdictOf(answer, keep)).toEqual({ claim, noSwaps: false });
+    ] as const)("%s says %s", (_label, answer, locks, claim) => {
+        expect(verdictOf(answer, locks)).toEqual({ claim, noSwaps: false });
     });
 
     it("marks an answer without swaps", () => {

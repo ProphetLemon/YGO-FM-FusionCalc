@@ -37,18 +37,24 @@ const TILE_CLASS =
     "card-tile relative flex flex-col aspect-[2/3] shrink-0 border-wb-ink text-wb-ink " +
     "shadow-[inset_1px_1px_0_#fff,inset_-1px_-1px_0_rgb(0_0_0/0.25)]";
 
-export function isEquipCard(card: CardSummary): boolean {
+// What a tile draws; a full CardSummary has it, and so does an entry of the card catalog.
+export type TileCard = Pick<
+    CardSummary,
+    "name" | "imageCode" | "isMonster" | "typeName" | "attack" | "defense"
+>;
+
+export function isEquipCard(card: Pick<CardSummary, "typeName">): boolean {
     return card.typeName === EQUIP_TYPE_NAME;
 }
 
 // The kind of a card that was not made by a fusion; pass `fusion` explicitly for one that was.
-export function cardKind(card: CardSummary): CardKind {
+export function cardKind(card: Pick<CardSummary, "isMonster" | "typeName">): CardKind {
     if (card.isMonster) return "monster";
     return isEquipCard(card) ? "equip" : "magic";
 }
 
 // "ATK / DEF" for a monster, the card type for anything else.
-export function cardStat(card: CardSummary): string {
+export function cardStat(card: TileCard): string {
     return card.isMonster ? `${card.attack} / ${card.defense}` : card.typeName;
 }
 
@@ -60,7 +66,7 @@ export interface CardTileOptions {
 
 // A card as the Workbench draws it: frame by kind, a name strip, the real artwork in a dark well (a
 // placeholder when it has none) and a stat strip. Independent from the tiles of the hand slots.
-export function createCardTile(card: CardSummary, options: CardTileOptions): HTMLElement {
+export function createCardTile(card: TileCard, options: CardTileOptions): HTMLElement {
     const { size } = options;
     const kind = options.kind ?? cardKind(card);
 
