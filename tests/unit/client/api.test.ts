@@ -169,7 +169,7 @@ describe("getCardsIndex", () => {
         { id: 8, name: "Mushroom Man", type: 0 },
     ];
     // Where the page keeps the index once it has it: the autocomplete specs read the same key.
-    const KEY = "ygo-fm:cards-index";
+    const KEY = "ygo-fm:cards-index:v2";
 
     class MemorySession {
         readonly items = new Map<string, string>();

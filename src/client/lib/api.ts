@@ -11,7 +11,8 @@ import type {
 } from "../../shared/types.js";
 import { browserStorage, readJson, writeJson } from "./storage.js";
 
-const CARDS_INDEX_KEY = "ygo-fm:cards-index";
+// Versioned by the shape of an entry: a tab that stored an older shape fetches the index again.
+const CARDS_INDEX_KEY = "ygo-fm:cards-index:v2";
 
 interface ErrorBody {
     error?: { code?: unknown };

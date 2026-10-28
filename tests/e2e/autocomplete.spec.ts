@@ -29,7 +29,7 @@ const DRAGON = [
 const MAX_SUGGESTIONS = 8;
 
 // Where the page keeps the card index once it has it (src/client/lib/api.ts).
-const CARDS_INDEX_KEY = "ygo-fm:cards-index";
+const CARDS_INDEX_KEY = "ygo-fm:cards-index:v2";
 
 const isCardsIndex = (url: URL): boolean => url.pathname === "/api/cards-index";
 

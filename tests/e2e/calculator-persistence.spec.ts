@@ -39,7 +39,7 @@ const FULL_HAND = [
 // would make every hand a user saved unreadable, so the specs have to fail when either changes.
 const HAND_KEY = "ygo-fm-fusioncalc:hand:v1";
 // Where the page keeps the card index once it has it (src/client/lib/api.ts).
-const CARDS_INDEX_KEY = "ygo-fm:cards-index";
+const CARDS_INDEX_KEY = "ygo-fm:cards-index:v2";
 
 const TEXT = {
     lookupFailed: "No se pudo buscar la carta. Inténtalo de nuevo.",
