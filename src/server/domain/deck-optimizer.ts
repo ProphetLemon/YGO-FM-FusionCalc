@@ -28,7 +28,8 @@ const DEFAULT_SEED = 20_251_025;
 const TOP_FINALS = 8;
 
 export interface DeckOptimizeOptions {
-    // Non-monster cards of the current deck stay in. The score cannot see their value. Default true.
+    // Non-monster cards of the current deck stay in. The score cannot see their value. Default true. The
+    // cards of `request.locked` stay in either way.
     keepNonMonsters?: boolean;
     // Seeds the sampling of the local search, so one input always gives one answer (when no budget is hit).
     seed?: number;
@@ -120,7 +121,7 @@ export function optimizeDeck(
 
     const evaluator = getHandEvaluator();
     const original = Int16Array.from(request.deck);
-    const space = buildSearchSpace(evaluator, request.deck, request.trunk, keepNonMonsters);
+    const space = buildSearchSpace(evaluator, request.deck, request.trunk, keepNonMonsters, request.locked);
 
     let found: ArrayLike<number>;
     let method: DeckOptimizeMethod;

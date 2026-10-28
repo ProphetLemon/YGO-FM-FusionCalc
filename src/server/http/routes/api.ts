@@ -1,7 +1,7 @@
 import { type NextFunction, type Request, type Response, Router } from "express";
 import express from "express";
 import { DECK_SIZE, MAX_HAND_SIZE, MAX_TRUNK_COUNT } from "../../../shared/limits.js";
-import type { DeckOptimizeRequest } from "../../../shared/types.js";
+import type { DeckLock, DeckOptimizeRequest } from "../../../shared/types.js";
 import { findCombinations } from "../../domain/calculator.js";
 import { findBestChains } from "../../domain/chain-search.js";
 import { getEquipsFor } from "../../domain/equips.js";
@@ -72,11 +72,32 @@ function isCardId(value: unknown): value is number {
     return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
+// The locks of a deck request, or null when they are malformed: at most one entry per card of the deck, with
+// distinct ids of known cards, and counts from 1 up to the copies the deck holds. Omitted means none.
+function readLocks(locked: unknown, deck: readonly number[]): DeckLock[] | null {
+    if (locked === undefined) return [];
+    if (!Array.isArray(locked) || locked.length > DECK_SIZE) return null;
+    const copies = new Map<number, number>();
+    for (const id of deck) copies.set(id, (copies.get(id) ?? 0) + 1);
+    const seen = new Set<number>();
+    const locks: DeckLock[] = [];
+    for (const entry of locked as unknown[]) {
+        if (!isRecord(entry) || !isCardId(entry.id) || seen.has(entry.id)) return null;
+        const { id, count } = entry;
+        if (getCardById(id) === undefined) return null;
+        if (typeof count !== "number" || !Number.isInteger(count) || count < 1) return null;
+        if (count > (copies.get(id) ?? 0)) return null;
+        seen.add(id);
+        locks.push({ id, count });
+    }
+    return locks;
+}
+
 // Reads the body of POST /deck/optimize: sends the 400 itself and returns null when it cannot be used. The
 // counts are only checked for shape and range here; the optimiser trusts nothing beyond them.
 function readDeckRequest(req: Request, res: Response): DeckOptimizeRequest | null {
     const body: Record<string, unknown> = isRecord(req.body) ? req.body : {};
-    const { deck, trunk, keepNonMonsters } = body;
+    const { deck, trunk, keepNonMonsters, locked } = body;
 
     if (!Array.isArray(deck) || deck.length !== DECK_SIZE || !deck.every(isCardId)) {
         sendError(res, 400, {
@@ -118,10 +139,19 @@ function readDeckRequest(req: Request, res: Response): DeckOptimizeRequest | nul
         sendError(res, 400, { code: "unknown-card", message: `No card with id ${unknown}` });
         return null;
     }
+    const locks = readLocks(locked, deck);
+    if (locks === null) {
+        sendError(res, 400, {
+            code: "invalid-locks",
+            message: `locked must be an array of at most ${DECK_SIZE} { id, count } with distinct ids of known cards, and counts from 1 up to the copies of that card in the deck`,
+        });
+        return null;
+    }
     return {
         deck: deck as number[],
         trunk: (entries as Array<{ id: number; count: number }>).map(({ id, count }) => ({ id, count })),
         ...(keepNonMonsters === undefined ? {} : { keepNonMonsters }),
+        ...(locks.length === 0 ? {} : { locked: locks }),
     };
 }
 

@@ -113,6 +113,12 @@ export interface DeckTrunkEntry {
     count: number;
 }
 
+// Copies of one card the optimiser keeps in the deck.
+export interface DeckLock {
+    id: number;
+    count: number;
+}
+
 export interface DeckOptimizeRequest {
     // The 40 card ids of the current deck.
     deck: number[];
@@ -120,6 +126,9 @@ export interface DeckOptimizeRequest {
     trunk: DeckTrunkEntry[];
     // Non-monster cards of the current deck are never swapped out. On by default.
     keepNonMonsters?: boolean;
+    // Cards to keep: the deck keeps at least `count` copies of each `id`, which the deck must hold. At most 40
+    // entries, distinct ids. They add to the non-monsters kept by `keepNonMonsters`. Omitted: no locks.
+    locked?: DeckLock[];
 }
 
 // How a deck plays over all of its 5-card hands: the strongest monster each hand can make. Every number is
@@ -157,9 +166,10 @@ export interface DeckOptimizeResponse {
     // single swap with any owned card improves `deck`. The deck is then the best found so far. Always false for
     // "exhaustive".
     truncated: boolean;
-    // True when `deck` is the best possible deck under the request's constraints, proven by trying every deck.
-    // With `keepNonMonsters` (the default) those constraints pin the non-monsters of the current deck and keep
-    // spare non-monsters out; without it every owned card may move. False for a deck found by local search:
+    // True when `deck` is the best possible deck under the request's constraints, proven by trying every deck:
+    // the best among those that keep the locked cards. With `keepNonMonsters` (the default) the constraints
+    // also pin the non-monsters of the current deck and keep spare non-monsters out; without it every other
+    // owned card may move. False for a deck found by local search:
     // unless `truncated`, no single swap with any owned card improves it, but a swap of several cards at once
     // might.
     certified: boolean;

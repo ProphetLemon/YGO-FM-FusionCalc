@@ -121,12 +121,14 @@ export function createMultisetScorer(): (deck: ReadonlyMap<number, number>) => n
 }
 
 // Every deck of `size` cards that holds up to `limits` copies of each card (as copies per card), calling
-// `visit` on each. `fixed` lists cards whose copies cannot change.
+// `visit` on each. `fixed` lists cards whose copies cannot change, and `minimum` cards that keep at least
+// that many copies.
 export function forEachDeck(
     limits: ReadonlyMap<number, number>,
     fixed: ReadonlyMap<number, number>,
     visit: (deck: Map<number, number>) => void,
-    size = DECK_SIZE
+    size = DECK_SIZE,
+    minimum: ReadonlyMap<number, number> = new Map()
 ): void {
     const ids = [...limits.keys()].sort((a, b) => a - b);
     const chosen = new Map<number, number>();
@@ -143,7 +145,7 @@ export function forEachDeck(
         const id = ids[index] as number;
         const pinned = fixed.get(id);
         const most = Math.min(left, limits.get(id) as number);
-        for (let copies = pinned ?? 0; copies <= (pinned ?? most); copies++) {
+        for (let copies = pinned ?? minimum.get(id) ?? 0; copies <= (pinned ?? most); copies++) {
             chosen.set(id, copies);
             walk(index + 1, left - copies);
         }

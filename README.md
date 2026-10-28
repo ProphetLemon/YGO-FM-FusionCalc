@@ -46,18 +46,19 @@ Los dos `POST` de la API (`/api/calculator` y `/api/chain-search`) reciben `{ "h
 | `400`     | `invalid-json`      | el cuerpo no es JSON válido                   |
 | `413`     | `payload-too-large` | el cuerpo supera 32 kB                        |
 
-`POST /api/deck/optimize` recibe `{ "deck": [40 ids], "trunk": [{ "id", "count" }], "keepNonMonsters": true }` (`keepNonMonsters` va en el nivel superior y vale `true` si se omite). Responde con las estadísticas actuales y recomendadas, los cambios, el mazo recomendado y `certified`, `method` y `truncated`. Errores:
+`POST /api/deck/optimize` recibe `{ "deck": [40 ids], "trunk": [{ "id", "count" }], "keepNonMonsters": true, "locked": [{ "id", "count" }] }` (`keepNonMonsters` y `locked` van en el nivel superior y son opcionales; `keepNonMonsters` vale `true` si se omite). `locked` fija cartas del mazo: el mazo recomendado conserva al menos `count` copias de cada `id`, además de los no monstruos que conserva `keepNonMonsters`. Responde con las estadísticas actuales y recomendadas, los cambios, el mazo recomendado y `certified`, `method` y `truncated`. Errores:
 
-| Respuesta | Código              | Cuándo                                                                       |
-| --------- | ------------------- | ---------------------------------------------------------------------------- |
-| `400`     | `invalid-deck`      | `deck` no son exactamente 40 enteros positivos                               |
-| `400`     | `invalid-trunk`     | `trunk` mal formado, con ids repetidos o con un `count` fuera de 0–255       |
-| `400`     | `invalid-options`   | `keepNonMonsters` no es un booleano                                          |
-| `400`     | `unknown-card`      | algún id no corresponde a ninguna carta                                      |
-| `400`     | `invalid-json`      | el cuerpo no es JSON válido                                                  |
-| `413`     | `payload-too-large` | el cuerpo supera 32 kB                                                       |
-| `503`     | `busy`              | ya hay un cálculo en marcha; la cabecera `Retry-After` indica cuánto esperar |
-| `500`     | `internal-error`    | fallo del servidor                                                           |
+| Respuesta | Código              | Cuándo                                                                                                                           |
+| --------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `400`     | `invalid-deck`      | `deck` no son exactamente 40 enteros positivos                                                                                   |
+| `400`     | `invalid-trunk`     | `trunk` mal formado, con ids repetidos o con un `count` fuera de 0–255                                                           |
+| `400`     | `invalid-options`   | `keepNonMonsters` no es un booleano                                                                                              |
+| `400`     | `invalid-locks`     | `locked` mal formado: más de 40 entradas, ids repetidos o desconocidos, o un `count` menor que 1 o mayor que las copias del mazo |
+| `400`     | `unknown-card`      | algún id no corresponde a ninguna carta                                                                                          |
+| `400`     | `invalid-json`      | el cuerpo no es JSON válido                                                                                                      |
+| `413`     | `payload-too-large` | el cuerpo supera 32 kB                                                                                                           |
+| `503`     | `busy`              | ya hay un cálculo en marcha; la cabecera `Retry-After` indica cuánto esperar                                                     |
+| `500`     | `internal-error`    | fallo del servidor                                                                                                               |
 
 ### Limitaciones conocidas
 

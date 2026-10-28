@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { MAX_COPIES_PER_CARD } from "../../../../src/shared/limits.js";
-import type { DeckOptimizeRequest } from "../../../../src/shared/types.js";
+import type { DeckLock, DeckOptimizeRequest } from "../../../../src/shared/types.js";
 import { loadStore } from "../../../../src/server/data/store.js";
 import { scoreDeck } from "../../../../src/server/domain/deck-score.js";
 import {
@@ -55,19 +55,34 @@ function pool(spare: number, magicInDeck = false): DeckOptimizeRequest {
     return { deck, trunk: strong.slice(0, spare).map((id) => ({ id, count: 1 })) };
 }
 
-// The best total over every deck the rules allow, by brute force over copies per card.
-function bruteForceBest(request: DeckOptimizeRequest, keepNonMonsters: boolean): number {
-    const space = buildSearchSpace(evaluator, request.deck, request.trunk, keepNonMonsters);
+// The best total over every deck the rules allow, by brute force over copies per card. A card that is not a
+// candidate keeps the copies the deck holds; a locked candidate keeps at least its locked copies.
+function bruteForceBest(
+    request: DeckOptimizeRequest,
+    keepNonMonsters: boolean,
+    locked: DeckLock[] = []
+): number {
+    const space = buildSearchSpace(evaluator, request.deck, request.trunk, keepNonMonsters, locked);
     const limits = new Map<number, number>();
     const fixed = new Map<number, number>();
-    for (const id of space.candidates) limits.set(id, space.limit[id] as number);
+    const minimum = new Map<number, number>();
+    for (const id of space.candidates) {
+        limits.set(id, space.limit[id] as number);
+        if (space.lockedMin[id]! > 0) minimum.set(id, space.lockedMin[id] as number);
+    }
     for (const [id, copies] of countOf(request.deck)) {
-        if (space.movable(id)) continue;
+        if (space.candidates.includes(id)) continue;
         limits.set(id, copies);
         fixed.set(id, copies);
     }
     let best = -1;
-    forEachDeck(limits, fixed, (deck) => (best = Math.max(best, scorer(deck))), request.deck.length);
+    forEachDeck(
+        limits,
+        fixed,
+        (deck) => (best = Math.max(best, scorer(deck))),
+        request.deck.length,
+        minimum
+    );
     return best;
 }
 
@@ -75,8 +90,8 @@ function totalOf(cards: ArrayLike<number>): number {
     return scoreDeck(evaluator, cards).totalAtk;
 }
 
-function plan(request: DeckOptimizeRequest, keep: boolean) {
-    const space = buildSearchSpace(evaluator, request.deck, request.trunk, keep);
+function plan(request: DeckOptimizeRequest, keep: boolean, locked: DeckLock[] = []) {
+    const space = buildSearchSpace(evaluator, request.deck, request.trunk, keep, locked);
     return { space, plan: planExhaustive(evaluator, request.deck, space) };
 }
 
@@ -113,8 +128,8 @@ describe("buildSearchSpace", () => {
             [...request.trunk, { id: magic[1] as number, count: 2 }],
             true
         );
-        expect(kept.movable(magic[0] as number)).toBe(false);
-        expect(kept.movable(weak[0] as number)).toBe(true);
+        expect(kept.lockedMin[magic[0] as number]).toBe(1);
+        expect(kept.lockedMin[weak[0] as number]).toBe(0);
         expect(kept.candidates).not.toContain(magic[0]);
         expect(kept.candidates).not.toContain(magic[1]);
         const free = buildSearchSpace(
@@ -123,9 +138,45 @@ describe("buildSearchSpace", () => {
             [{ id: magic[1] as number, count: 2 }],
             false
         );
-        expect(free.movable(magic[0] as number)).toBe(true);
+        expect(free.lockedMin[magic[0] as number]).toBe(0);
         expect(free.candidates).toContain(magic[0]);
         expect(free.candidates).toContain(magic[1]);
+    });
+
+    it("keeps the locked copies, and leaves a locked card with spare copies a candidate for them", () => {
+        const request = pool(2, true);
+        const [a, b] = [weak[0] as number, weak[1] as number];
+        // Without keeping non-monsters, so the lock on the magic card is the only thing that holds it.
+        const space = buildSearchSpace(
+            evaluator,
+            request.deck,
+            [...request.trunk, { id: a, count: 5 }],
+            false,
+            [
+                { id: a, count: 2 },
+                { id: b, count: 3 },
+                { id: magic[0] as number, count: 1 },
+            ]
+        );
+        expect(space.lockedMin[a]).toBe(2);
+        expect(space.lockedMin[b]).toBe(3);
+        expect(space.lockedMin[magic[0] as number]).toBe(1);
+        // `a` is held 3 times and limited to 3, so one copy may still come or go; `b` and the magic card
+        // have nothing above their locks.
+        expect(space.candidates).toContain(a);
+        expect(space.candidates).not.toContain(b);
+        expect(space.candidates).not.toContain(magic[0]);
+    });
+
+    it("adds the explicit locks to the non-monsters that are kept, and ignores locks above the copies held", () => {
+        const request = pool(2, true);
+        const space = buildSearchSpace(evaluator, request.deck, request.trunk, true, [
+            { id: weak[0] as number, count: 1 },
+            { id: weak[1] as number, count: 9 },
+        ]);
+        expect(space.lockedMin[magic[0] as number]).toBe(1);
+        expect(space.lockedMin[weak[0] as number]).toBe(1);
+        expect(space.lockedMin[weak[1] as number]).toBe(3);
     });
 });
 
@@ -161,6 +212,24 @@ describe("planExhaustive", () => {
         expect(planExhaustive(evaluator, request.deck, big, Number.MAX_SAFE_INTEGER)).toBeNull();
         expect(EXHAUSTIVE_MAX_LEFT_OUT).toBeLessThan(18);
         expect(EXHAUSTIVE_MAX_DECKS).toBeGreaterThan(100_000);
+    });
+
+    it("pins the locked copies, leaves out fewer cards, and counts only the movable copies in the deck", () => {
+        const [a, b] = [weak[0] as number, weak[1] as number];
+        const locked = [
+            { id: a, count: 2 },
+            { id: b, count: 3 },
+        ];
+        const { plan: found } = plan(pool(2), true, locked);
+        expect([...(found?.pinned ?? [])].sort()).toEqual([a, a, b, b, b].sort());
+        // 14 cards in the pool, 5 of them pinned: 9 may be left out, 2 of them, among C(9, 2) decks.
+        expect(found?.movable).toHaveLength(9);
+        expect(found?.leaveOut).toBe(2);
+        expect(found?.decks).toBe(36);
+        // The third copy of `a` is the only one of its card that is still in the deck and movable.
+        const copiesOfA = found!.movable.map((id, i) => ({ id, i })).filter(({ id }) => id === a);
+        expect(copiesOfA).toHaveLength(1);
+        expect(found?.inCurrent[copiesOfA[0]!.i]).toBe(true);
     });
 
     it("has nothing to leave out when the deck is the whole pool", () => {
@@ -217,6 +286,49 @@ describe("exhaustiveBest", () => {
         }
     });
 
+    it("matches a brute force on seeded random pools with random locks, with and without kept non-monsters", () => {
+        const random = testRandom(77);
+        const cards = [...weak, ...fusionRichMonsters().slice(0, 25), ...magic];
+        for (let round = 0; round < 6; round++) {
+            const pick = () => cards[Math.floor(random() * cards.length)] as number;
+            const deck = Array.from({ length: SIZE }, pick);
+            const trunk = [...countOf(Array.from({ length: 2 + (round % 2) }, pick))].map(([id, count]) => ({
+                id,
+                count,
+            }));
+            const request: DeckOptimizeRequest = { deck, trunk };
+            // Lock a random share of the copies of a few random cards of the deck.
+            const locked = [...countOf(deck)]
+                .filter(() => random() < 0.4)
+                .map(([id, copies]) => ({ id, count: 1 + Math.floor(random() * copies) }));
+            for (const keep of [true, false]) {
+                const { plan: found } = plan(request, keep, locked);
+                if (found === null) continue;
+                const best = exhaustiveBest(evaluator, found);
+                expect(totalOf(best), `round ${round}`).toBe(bruteForceBest(request, keep, locked));
+                const kept = countOf(best);
+                for (const { id, count } of locked) {
+                    expect(kept.get(id) ?? 0, `round ${round}`).toBeGreaterThanOrEqual(count);
+                }
+            }
+        }
+    });
+
+    it("keeps a locked card the unlocked best deck would drop", () => {
+        const request = pool(2);
+        const best = exhaustiveBest(evaluator, plan(request, true).plan!);
+        const dropped = [...countOf(request.deck)].find(
+            ([id, copies]) => copies > (countOf(best).get(id) ?? 0)
+        );
+        expect(dropped).toBeDefined();
+        const [id] = dropped!;
+        const locked = [{ id, count: countOf(request.deck).get(id) as number }];
+        const again = exhaustiveBest(evaluator, plan(request, true, locked).plan!);
+        expect(countOf(again).get(id)).toBe(locked[0]!.count);
+        expect(totalOf(again)).toBe(bruteForceBest(request, true, locked));
+        expect(totalOf(again)).toBeLessThanOrEqual(totalOf(best));
+    });
+
     it("beats the current deck when strong spare cards wait in the trunk", () => {
         const request = pool(2);
         const best = exhaustiveBest(evaluator, plan(request, true).plan!);
@@ -243,9 +355,9 @@ describe("localSearch", () => {
     function search(
         request: DeckOptimizeRequest,
         keep: boolean,
-        extra: { expired?: () => boolean; seed?: number; tabuSteps?: number } = {}
+        extra: { expired?: () => boolean; seed?: number; tabuSteps?: number; locked?: DeckLock[] } = {}
     ) {
-        const space = buildSearchSpace(evaluator, request.deck, request.trunk, keep);
+        const space = buildSearchSpace(evaluator, request.deck, request.trunk, keep, extra.locked);
         return localSearch(evaluator, space, Int16Array.from(request.deck), {
             random: seededRandom(extra.seed ?? 1),
             expired: extra.expired ?? never,
@@ -299,6 +411,38 @@ describe("localSearch", () => {
     it("can move every card when non-monsters are not kept", () => {
         const { deck } = search(pool(2, true), false);
         expect([...deck]).not.toContain(magic[0]);
+    });
+
+    it("never drops a locked copy, whatever the seed, and still finds the best deck that keeps them", () => {
+        const request = pool(4, true);
+        const [a, b] = [weak[0] as number, weak[1] as number];
+        // A copy of a weak card, the magic card (with non-monsters free to move) and all of another weak card.
+        const locked = [
+            { id: a, count: 1 },
+            { id: b, count: 3 },
+            { id: magic[0] as number, count: 1 },
+        ];
+        for (const seed of [1, 2, 3, 4]) {
+            for (const tabuSteps of [0, 2]) {
+                const result = search(request, false, { seed, tabuSteps, locked });
+                const held = countOf(result.deck);
+                for (const { id, count } of locked) {
+                    expect(held.get(id) ?? 0, `seed ${seed}`).toBeGreaterThanOrEqual(count);
+                }
+                expect(result.truncated).toBe(false);
+                expect(totalOf(result.deck)).toBe(bruteForceBest(request, false, locked));
+            }
+        }
+    });
+
+    it("keeps the locked copies when the budget ends in the middle", () => {
+        const request = pool(4);
+        const locked = [{ id: weak[1] as number, count: 3 }];
+        for (const checks of [2, 5, 12, 30]) {
+            let reads = 0;
+            const result = search(request, true, { locked, expired: () => ++reads > checks });
+            expect(countOf(result.deck).get(weak[1] as number)).toBeGreaterThanOrEqual(3);
+        }
     });
 
     it("gives the same deck for the same seed", () => {

@@ -250,6 +250,47 @@ describe("POST /api/deck/optimize", () => {
         expect(res.body.error.code).toBe("invalid-options");
     });
 
+    it("200 with locks, which the recommended deck keeps", async () => {
+        // Card 1 is in the deck once; locking it keeps it whatever the trunk offers.
+        const locked = [{ id: 1, count: 1 }];
+        const res = await post({ deck: DECK, trunk: TRUNK, keepNonMonsters: false, locked });
+        expect(res.status).toBe(200);
+        expect(res.body.deck.map((card: { id: number }) => card.id)).toContain(1);
+        expect((await post({ deck: DECK, trunk: TRUNK, locked: [] })).status).toBe(200);
+    });
+
+    const INVALID_LOCKS: ReadonlyArray<readonly [string, unknown]> = [
+        ["a locked that is not an array", { id: 1, count: 1 }],
+        ["a null locked", null],
+        ["more than 40 entries", Array.from({ length: 41 }, (_, i) => ({ id: i + 1, count: 1 }))],
+        ["a non-object entry", [7]],
+        ["a null entry", [null]],
+        ["a float id", [{ id: 1.5, count: 1 }]],
+        ["a zero id", [{ id: 0, count: 1 }]],
+        ["a string id", [{ id: "1", count: 1 }]],
+        ["a missing id", [{ count: 1 }]],
+        ["an id that matches no card", [{ id: 999_999, count: 1 }]],
+        ["a count of 0", [{ id: 1, count: 0 }]],
+        ["a negative count", [{ id: 1, count: -1 }]],
+        ["a float count", [{ id: 1, count: 1.5 }]],
+        ["a string count", [{ id: 1, count: "1" }]],
+        ["a missing count", [{ id: 1 }]],
+        [
+            "a repeated id",
+            [
+                { id: 1, count: 1 },
+                { id: 1, count: 1 },
+            ],
+        ],
+        ["more copies than the deck holds", [{ id: 1, count: 2 }]],
+        ["a card that is not in the deck", [{ id: 296, count: 1 }]],
+    ];
+    it.each(INVALID_LOCKS)("400 invalid-locks for %s", async (_name, locked) => {
+        const res = await post({ deck: DECK, trunk: TRUNK, locked });
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe("invalid-locks");
+    });
+
     it("400 unknown-card for a deck id that matches no card", async () => {
         const res = await post({ deck: [...DECK.slice(1), 999_999], trunk: TRUNK });
         expect(res.status).toBe(400);

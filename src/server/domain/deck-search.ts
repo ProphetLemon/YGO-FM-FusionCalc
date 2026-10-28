@@ -1,5 +1,5 @@
 import { MAX_COPIES_PER_CARD } from "../../shared/limits.js";
-import type { DeckTrunkEntry } from "../../shared/types.js";
+import type { DeckLock, DeckTrunkEntry } from "../../shared/types.js";
 import { DeltaEngine, fullSample, randomSample } from "./deck-engine.js";
 import { HAND_SIZE, handCount, scoreDeck } from "./deck-score.js";
 import { PLAY_SHIFT, type HandEvaluator } from "./hand-evaluator.js";
@@ -48,17 +48,20 @@ export interface SearchSpace {
     // By card id, the copies the deck may hold: the copies owned, up to MAX_COPIES_PER_CARD. A deck that
     // already holds more copies of a card than that may keep them, so the current deck is always allowed.
     limit: Int16Array;
-    // The cards that may enter or stay movable, ascending: owned, and monsters when non-monsters are kept.
+    // By card id, the copies that always stay in the deck: all of a non-monster's copies when non-monsters are
+    // kept, and the copies the player locked. Never more than the deck holds, so the current deck satisfies it.
+    lockedMin: Int16Array;
+    // The cards that may still gain copies, ascending: owned, with copies above their locked minimum, and
+    // monsters when non-monsters are kept.
     candidates: number[];
-    // Whether a card in the deck may leave. With `keepNonMonsters`, non-monsters never do.
-    movable(card: number): boolean;
 }
 
 export function buildSearchSpace(
     evaluator: HandEvaluator,
     deck: readonly number[],
     trunk: readonly DeckTrunkEntry[],
-    keepNonMonsters: boolean
+    keepNonMonsters: boolean,
+    locked: readonly DeckLock[] = []
 ): SearchSpace {
     const inDeck = new Int16Array(evaluator.size);
     const owned = new Int16Array(evaluator.size);
@@ -67,14 +70,32 @@ export function buildSearchSpace(
         owned[id]! += 1;
     }
     for (const { id, count } of trunk) owned[id]! += count;
-    const movable = (card: number): boolean => !keepNonMonsters || evaluator.monster[card] === 1;
+    const explicit = new Int16Array(evaluator.size);
+    for (const { id, count } of locked) explicit[id] = Math.min(count, inDeck[id]!);
     const limit = new Int16Array(evaluator.size);
+    const lockedMin = new Int16Array(evaluator.size);
     const candidates: number[] = [];
     for (let id = 0; id < evaluator.size; id++) {
+        const kept = keepNonMonsters && evaluator.monster[id] !== 1;
         limit[id] = Math.min(owned[id]!, Math.max(MAX_COPIES_PER_CARD, inDeck[id]!));
-        if (limit[id]! > 0 && movable(id)) candidates.push(id);
+        lockedMin[id] = kept ? inDeck[id]! : explicit[id]!;
+        if (limit[id]! > lockedMin[id]! && !kept) candidates.push(id);
     }
-    return { keepNonMonsters, limit, candidates, movable };
+    return { keepNonMonsters, limit, lockedMin, candidates };
+}
+
+// The copies of each card that always stay, as a list of card ids.
+function lockedCopies(space: SearchSpace): number[] {
+    const copies: number[] = [];
+    space.lockedMin.forEach((count, id) => {
+        for (let copy = 0; copy < count; copy++) copies.push(id);
+    });
+    return copies;
+}
+
+// The copies of each candidate that may be in the deck or left out, beyond the ones that always stay.
+function openCopies(space: SearchSpace): number[] {
+    return space.candidates.flatMap((id) => Array<number>(space.limit[id]! - space.lockedMin[id]!).fill(id));
 }
 
 // Copies of each card in a deck, by id.
@@ -98,7 +119,7 @@ export interface ExhaustivePlan {
     // Copies that may be left out, by card id, and whether each is part of the current deck.
     movable: number[];
     inCurrent: boolean[];
-    // Copies that always stay: the non-monsters of the deck when they are kept.
+    // Copies that always stay: the non-monsters of the deck when they are kept, and the locked cards.
     pinned: number[];
     // How many movable copies are left out of the pool to make a 40-card deck.
     leaveOut: number;
@@ -117,12 +138,14 @@ export function planExhaustive(
     const movable: number[] = [];
     const inCurrent: boolean[] = [];
     for (const id of space.candidates) {
-        for (let copy = 0; copy < space.limit[id]!; copy++) {
+        // The locked copies are pinned, so the movable ones are the rest, and the first ones are in the deck.
+        const open = space.limit[id]! - space.lockedMin[id]!;
+        for (let copy = 0; copy < open; copy++) {
             movable.push(id);
-            inCurrent.push(copy < inDeck[id]!);
+            inCurrent.push(copy < inDeck[id]! - space.lockedMin[id]!);
         }
     }
-    const pinned = deck.filter((id) => !space.movable(id));
+    const pinned = lockedCopies(space);
     const leaveOut = movable.length + pinned.length - deck.length;
     if (leaveOut > EXHAUSTIVE_MAX_LEFT_OUT) return null;
     const decks = choose(movable.length, leaveOut);
@@ -381,6 +404,7 @@ function sweep(
         }
         const baselines = Float64Array.from({ length: size }, (_, slot) => engine.baseline(slot));
         const spare = spareCards(ctx, engine.deck);
+        const counts = countCards(ctx.evaluator, engine.deck);
         const ordered =
             spare.length <= PREFILTER_CANDIDATES
                 ? spare
@@ -392,7 +416,7 @@ function sweep(
             let best: Move | null = null;
             for (let slot = 0; slot < size; slot++) {
                 const current = engine.deck[slot]!;
-                if (!ctx.space.movable(current)) continue;
+                if (!mayLeave(ctx, counts, current)) continue;
                 const gain = engine.gain(slot, card, baselines[slot]!);
                 if (best === null || gain > best.gain) best = { slot, card, gain, restores: false };
             }
@@ -458,6 +482,12 @@ function tabu(ctx: Context, engine: DeltaEngine, startTotal: number, steps: numb
         }
     }
     return bestDeck === null ? null : { deck: bestDeck, total: bestTotal, engine: null };
+}
+
+// Whether one more copy of a card may leave a deck that holds `counts` of each: only while the deck holds
+// more than the copies that must stay. Counts change as swaps happen, so this is asked per slot, not per card.
+function mayLeave(ctx: Context, counts: Int16Array, card: number): boolean {
+    return counts[card]! > ctx.space.lockedMin[card]!;
 }
 
 // The spare cards that could enter the deck: owned, under their copy limit, and allowed in.
@@ -534,7 +564,7 @@ function bestMove(
     for (const card of candidates) {
         for (let slot = 0; slot < size; slot++) {
             const current = deck[slot]!;
-            if (current === card || !ctx.space.movable(current) || skip?.(slot)) continue;
+            if (current === card || !mayLeave(ctx, counts, current) || skip?.(slot)) continue;
             const gain = engine.gain(slot, card, baselines[slot]!);
             // Walking back puts a missing card in place of a surplus one; swapping two cards the player
             // already had is not walking back, or two cards of equal worth would trade places forever.
@@ -552,9 +582,10 @@ function bestMove(
     return best;
 }
 
-// Slots of cards that stay whatever happens: the non-monsters of the deck when they are kept.
+// Slots of cards that stay whatever happens: the non-monsters of the deck when they are kept, and the locked
+// cards.
 function fixedCards(ctx: Context): number[] {
-    return Array.from(ctx.original).filter((id) => !ctx.space.movable(id));
+    return lockedCopies(ctx.space);
 }
 
 // Starts from the cards that stay, then adds the card that does best with the deck so far, a few at a time.
@@ -564,7 +595,7 @@ function greedyDeck(ctx: Context): Int16Array {
     const deck = fixedCards(ctx);
     for (const id of deck) counts[id]! += 1;
     // Before the deck holds a few cards, the sample comes from the owned cards themselves.
-    const everyCopy = space.candidates.flatMap((id) => Array<number>(space.limit[id]!).fill(id));
+    const everyCopy = openCopies(space);
     const size = ctx.original.length;
     while (deck.length < size) {
         const around = deck.length >= 2 * GREEDY_BATCH ? deck : everyCopy;
@@ -582,7 +613,7 @@ function greedyDeck(ctx: Context): Int16Array {
 function randomDeck(ctx: Context): Int16Array {
     const { space } = ctx;
     const deck = fixedCards(ctx);
-    const everyCopy = space.candidates.flatMap((id) => Array<number>(space.limit[id]!).fill(id));
+    const everyCopy = openCopies(space);
     for (let i = everyCopy.length - 1; i > 0; i--) {
         const j = Math.floor(ctx.random() * (i + 1));
         [everyCopy[i], everyCopy[j]] = [everyCopy[j] as number, everyCopy[i] as number];

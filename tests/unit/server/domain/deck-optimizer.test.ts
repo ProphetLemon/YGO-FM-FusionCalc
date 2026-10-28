@@ -121,6 +121,70 @@ describe("optimizeDeck, exhaustive", () => {
         expect(overridden.swaps.some((swap) => swap.out.id === magic[0])).toBe(true);
     });
 
+    describe("with locked cards", () => {
+        // A deck with two magic cards in its last slots, and two strong cards waiting in the trunk.
+        function withTwoMagic(): DeckOptimizeRequest {
+            const deck = deckOf(weak.slice(0, 4), 3, SIZE);
+            deck[SIZE - 1] = magic[0] as number;
+            deck[SIZE - 2] = magic[1] as number;
+            return { deck, trunk: strong.slice(0, 2).map((id) => ({ id, count: 1 })) };
+        }
+
+        it("keeps a locked spell and replaces an unlocked one when non-monsters are free to move", () => {
+            const request = withTwoMagic();
+            const result = optimizeDeck({
+                ...request,
+                keepNonMonsters: false,
+                locked: [{ id: magic[0] as number, count: 1 }],
+            });
+            expect(result.certified).toBe(true);
+            expect(ids(result)).toContain(magic[0]);
+            expect(ids(result)).not.toContain(magic[1]);
+            expect(result.swaps.some((swap) => swap.out.id === magic[1])).toBe(true);
+            expect(result.swaps.some((swap) => swap.out.id === magic[0])).toBe(false);
+        });
+
+        it("adds locks on monsters to the spells that are kept", () => {
+            const request = withTwoMagic();
+            const locked = [{ id: weak[0] as number, count: 3 }];
+            const result = optimizeDeck({ ...request, locked });
+            expect(result.certified).toBe(true);
+            expect(ids(result)).toContain(magic[0]);
+            expect(ids(result)).toContain(magic[1]);
+            expect(countOf(ids(result)).get(weak[0] as number)).toBe(3);
+            // Without the lock the optimiser would drop some weak card to make room for a strong one.
+            expect(result.swaps.every((swap) => swap.out.id !== weak[0])).toBe(true);
+        });
+
+        it("keeps the locked copies on the local search too", () => {
+            const request = withTwoMagic();
+            const locked = [
+                { id: magic[0] as number, count: 1 },
+                { id: weak[1] as number, count: 3 },
+            ];
+            const result = optimizeDeck({ ...request, keepNonMonsters: false, locked }, LOCAL);
+            expect(result.method).toBe("local-search");
+            const held = countOf(ids(result));
+            expect(held.get(magic[0] as number)).toBeGreaterThanOrEqual(1);
+            expect(held.get(weak[1] as number)).toBeGreaterThanOrEqual(3);
+            expect(ids(result)).not.toContain(magic[1]);
+            expect(result.recommended).toEqual(
+                optimizeDeck({ ...request, keepNonMonsters: false, locked }).recommended
+            );
+        });
+
+        it("gives the current deck, certified and without swaps, when every card is locked", () => {
+            const request = withTwoMagic();
+            const locked = [...countOf(request.deck)].map(([id, count]) => ({ id, count }));
+            const result = optimizeDeck({ ...request, keepNonMonsters: false, locked });
+            expect(result.method).toBe("exhaustive");
+            expect(result.certified).toBe(true);
+            expect(result.swaps).toEqual([]);
+            expect(ids(result)).toEqual(request.deck);
+            expect(result.recommended).toEqual(result.current);
+        });
+    });
+
     it("never takes a spare non-monster in when non-monsters are kept", () => {
         const request: DeckOptimizeRequest = {
             deck: deckOf(weak.slice(0, 4), 3, SIZE),
