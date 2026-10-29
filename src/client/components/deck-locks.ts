@@ -12,8 +12,12 @@ export interface LockGrid {
 
 const LOCKED_MARK = "bg-wb-blue text-white";
 const UNLOCKED_MARK = "bg-white/90 text-wb-ink";
+// The mark sits on the bottom corner of the artwork, just above the stat strip, so it never hides a card name,
+// however many lines the name takes.
 const MARK_CLASS =
-    "absolute -top-1.5 -right-1.5 z-10 grid place-items-center size-6 border-2 border-solid border-wb-ink";
+    "absolute bottom-7 right-1.5 z-10 grid place-items-center size-6 border-2 border-solid border-wb-ink";
+// A locked tile is also ringed, so the locked cards stand out at a glance and not only by their mark.
+const LOCKED_TILE = ["ring-4", "ring-wb-blue"];
 
 function lockLabel(card: CardIndexEntry, locked: boolean): string {
     return t(locked ? "deck.lock.card-locked" : "deck.lock.card-unlocked", { name: card.name });
@@ -53,6 +57,7 @@ export function createLockGrid(
             button.setAttribute("aria-pressed", String(isLocked));
             button.setAttribute("aria-label", lockLabel(card, isLocked));
             button.dataset.locked = String(isLocked);
+            for (const name of LOCKED_TILE) button.classList.toggle(name, isLocked);
             const mark = button.lastElementChild as HTMLElement;
             mark.className = `${MARK_CLASS} ${isLocked ? LOCKED_MARK : UNLOCKED_MARK}`;
             setLockIcon(mark.firstElementChild as SVGElement, isLocked);
