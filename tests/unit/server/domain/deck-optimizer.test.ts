@@ -10,6 +10,8 @@ import {
     type DeckOptimizeOptions,
 } from "../../../../src/server/domain/deck-optimizer.js";
 import { handCount } from "../../../../src/server/domain/deck-score.js";
+import { buildSearchSpace, planExhaustive } from "../../../../src/server/domain/deck-search.js";
+import { getHandEvaluator } from "../../../../src/server/domain/hand-evaluator.js";
 import { runInWorker } from "../../../../src/server/workers/deck-optimizer-runner.js";
 import {
     countOf,
@@ -309,6 +311,125 @@ describe("optimizeDeck, local search", () => {
         expect(result.method).toBe("local-search");
         expect(result.certified).toBe(false);
         expect(result.recommended.averageBestAtk).toBeGreaterThan(result.current.averageBestAtk);
+    });
+});
+
+describe("optimizeDeck with required and forbidden cards", () => {
+    // The deck the optimiser picks for a pool, with the cards it left out as the trunk: nothing beats it.
+    function bestOf(first: DeckOptimizeRequest): DeckOptimizeRequest {
+        const best = ids(optimizeDeck(first));
+        const left = countOf([
+            ...first.deck,
+            ...first.trunk.flatMap(({ id, count }) => Array<number>(count).fill(id)),
+        ]);
+        for (const [id, copies] of countOf(best)) left.set(id, (left.get(id) ?? 0) - copies);
+        return {
+            deck: best,
+            trunk: [...left].filter(([, count]) => count > 0).map(([id, count]) => ({ id, count })),
+        };
+    }
+
+    it.each([
+        ["the exhaustive search", {}],
+        ["the local search", LOCAL],
+        ["the local search with the budget already spent", { ...LOCAL, maxMillis: 0 }],
+    ])("answers a deck without the forbidden card, and a lower average, from %s", (_name, options) => {
+        // The best deck of the pool is the player's deck, and it holds the card the rules forbid.
+        const request = bestOf(smallPool());
+        expect(request.deck).toContain(strong[0]);
+        const forbidden = [strong[0] as number];
+        const result = optimizeDeck({ ...request, forbidden }, options);
+        expect(ids(result)).toHaveLength(SIZE);
+        expect(ids(result)).not.toContain(strong[0]);
+        expect(result.swaps.length).toBeGreaterThan(0);
+        // The current deck holds the forbidden card, so its score is the player's real deck and is higher.
+        expect(result.current.averageBestAtk).toBeCloseTo(exactAverage(request.deck), 2);
+        expect(result.recommended.averageBestAtk).toBeLessThan(result.current.averageBestAtk);
+        expect(result.recommended.averageBestAtk).toBeCloseTo(exactAverage(ids(result)), 2);
+        expect(result.certified).toBe(options === undefined || !("exhaustiveMaxDecks" in options));
+    });
+
+    it("never brings a forbidden spare card in, and brings a required one, on both searches", () => {
+        const request = smallPool();
+        const [kept, banned] = [strong[0] as number, strong[1] as number];
+        const rules = { ...request, locked: [{ id: kept, count: 1 }], forbidden: [banned] };
+        const exact = optimizeDeck(rules);
+        const local = optimizeDeck(rules, LOCAL);
+        for (const result of [exact, local]) {
+            expect(ids(result)).toContain(kept);
+            expect(ids(result)).not.toContain(banned);
+        }
+        expect(local.recommended).toEqual(exact.recommended);
+        expect(exact.certified).toBe(true);
+    });
+
+    it("holds the rules when the clock runs out in the middle of the local search", () => {
+        const request = {
+            deck: smallPool().deck,
+            trunk: strong.slice(0, 4).map((id) => ({ id, count: 1 })),
+            forbidden: [weak[1] as number],
+            locked: [{ id: weak[0] as number, count: 1 }],
+        };
+        for (const cutoff of [3, 6, 12, 40]) {
+            let reads = 0;
+            const result = optimizeDeck(request, {
+                ...LOCAL,
+                maxMillis: 1_000,
+                now: () => (++reads > cutoff ? 1e9 : 0),
+            });
+            expect(ids(result), `after ${cutoff} reads`).not.toContain(weak[1]);
+            expect(ids(result), `after ${cutoff} reads`).toContain(weak[0]);
+            expect(ids(result)).toHaveLength(SIZE);
+        }
+    });
+
+    it("keeps the current deck when it obeys the rules and nothing beats it", () => {
+        const best = bestOf(smallPool());
+        expect(best.trunk.length).toBeGreaterThan(0);
+        // A lock on a card it holds and a forbid on a spare non-monster change nothing for this deck.
+        const held = best.deck[0] as number;
+        const spare = { ...best, trunk: [...best.trunk, { id: magic[0] as number, count: 1 }] };
+        const rules = { ...spare, locked: [{ id: held, count: 1 }], forbidden: [magic[0] as number] };
+        for (const options of [{}, LOCAL]) {
+            const result = optimizeDeck(rules, options);
+            expect(result.swaps).toEqual([]);
+            expect(ids(result)).toEqual(best.deck);
+            expect(result.recommended).toEqual(result.current);
+        }
+    });
+
+    it("answers the same with explicit empty rules as with none", () => {
+        const request = smallPool();
+        const plain = optimizeDeck(request);
+        expect(optimizeDeck({ ...request, locked: [], forbidden: [] })).toEqual(plain);
+        expect(optimizeDeck({ ...request, locked: [], forbidden: [] }, LOCAL)).toEqual(
+            optimizeDeck(request, LOCAL)
+        );
+        expect(plain.recommended.averageBestAtk).toBeGreaterThan(plain.current.averageBestAtk);
+    });
+
+    it("certifies one deck when the required copies fill the deck exactly", () => {
+        const request = smallPool();
+        const [a, b] = [strong[0] as number, strong[1] as number];
+        const locked = [
+            { id: weak[0] as number, count: 3 },
+            { id: weak[1] as number, count: 3 },
+            { id: weak[2] as number, count: 3 },
+            { id: a, count: 1 },
+            { id: b, count: 1 },
+            { id: weak[3] as number, count: 1 },
+        ];
+        const evaluator = getHandEvaluator();
+        const space = buildSearchSpace(evaluator, request.deck, request.trunk, true, locked);
+        // Every copy that is not required is left out of the one deck the rules allow.
+        expect(planExhaustive(evaluator, request.deck, space)?.decks).toBe(1);
+        const want = new Map(locked.map(({ id, count }) => [id, count]));
+        for (const options of [{}, LOCAL]) {
+            const result = optimizeDeck({ ...request, locked }, options);
+            expect(countOf(ids(result))).toEqual(want);
+        }
+        expect(optimizeDeck({ ...request, locked }).certified).toBe(true);
+        expect(optimizeDeck({ ...request, locked }).method).toBe("exhaustive");
     });
 });
 

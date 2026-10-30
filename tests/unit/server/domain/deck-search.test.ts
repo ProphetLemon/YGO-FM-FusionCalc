@@ -8,7 +8,9 @@ import {
     EXHAUSTIVE_MAX_LEFT_OUT,
     buildSearchSpace,
     exhaustiveBest,
+    feasibleStart,
     localSearch,
+    obeysRules,
     planExhaustive,
     seededRandom,
 } from "../../../../src/server/domain/deck-search.js";
@@ -56,13 +58,22 @@ function pool(spare: number, magicInDeck = false): DeckOptimizeRequest {
 }
 
 // The best total over every deck the rules allow, by brute force over copies per card. A card that is not a
-// candidate keeps the copies the deck holds; a locked candidate keeps at least its locked copies.
+// candidate keeps the copies the rules require (the copies the deck holds for a kept non-monster, none for a
+// forbidden card); a candidate keeps at least its required copies.
 function bruteForceBest(
     request: DeckOptimizeRequest,
     keepNonMonsters: boolean,
-    locked: DeckLock[] = []
+    locked: DeckLock[] = [],
+    forbidden: number[] = []
 ): number {
-    const space = buildSearchSpace(evaluator, request.deck, request.trunk, keepNonMonsters, locked);
+    const space = buildSearchSpace(
+        evaluator,
+        request.deck,
+        request.trunk,
+        keepNonMonsters,
+        locked,
+        forbidden
+    );
     const limits = new Map<number, number>();
     const fixed = new Map<number, number>();
     const minimum = new Map<number, number>();
@@ -70,10 +81,12 @@ function bruteForceBest(
         limits.set(id, space.limit[id] as number);
         if (space.lockedMin[id]! > 0) minimum.set(id, space.lockedMin[id] as number);
     }
-    for (const [id, copies] of countOf(request.deck)) {
-        if (space.candidates.includes(id)) continue;
-        limits.set(id, copies);
-        fixed.set(id, copies);
+    const owned = [...request.deck, ...request.trunk.map(({ id }) => id)];
+    for (const id of owned) {
+        if (space.candidates.includes(id) || forbidden.includes(id)) continue;
+        // Not a candidate: either kept as the deck holds it, or pinned at the copies a lock asks for.
+        limits.set(id, space.lockedMin[id] as number);
+        fixed.set(id, space.lockedMin[id] as number);
     }
     let best = -1;
     forEachDeck(
@@ -90,8 +103,13 @@ function totalOf(cards: ArrayLike<number>): number {
     return scoreDeck(evaluator, cards).totalAtk;
 }
 
-function plan(request: DeckOptimizeRequest, keep: boolean, locked: DeckLock[] = []) {
-    const space = buildSearchSpace(evaluator, request.deck, request.trunk, keep, locked);
+function plan(
+    request: DeckOptimizeRequest,
+    keep: boolean,
+    locked: DeckLock[] = [],
+    forbidden: number[] = []
+) {
+    const space = buildSearchSpace(evaluator, request.deck, request.trunk, keep, locked, forbidden);
     return { space, plan: planExhaustive(evaluator, request.deck, space) };
 }
 
@@ -350,15 +368,302 @@ describe("exhaustiveBest", () => {
     });
 });
 
+describe("buildSearchSpace with required and forbidden cards", () => {
+    it("lets a lock ask for more copies than the deck holds, up to the copy limit", () => {
+        const request = pool(0);
+        const [a, b] = [strong[0] as number, strong[1] as number];
+        const trunk = [
+            { id: a, count: 2 },
+            { id: b, count: 5 },
+        ];
+        const space = buildSearchSpace(evaluator, request.deck, trunk, true, [
+            { id: a, count: 2 },
+            { id: b, count: 5 },
+        ]);
+        // Both copies owned are required; the lock above the copy limit is held at the limit.
+        expect(space.lockedMin[a]).toBe(2);
+        expect(space.lockedMin[b]).toBe(MAX_COPIES_PER_CARD);
+        // `a` has nothing above its requirement, `b` neither.
+        expect(space.candidates).not.toContain(a);
+        expect(space.candidates).not.toContain(b);
+        const partial = buildSearchSpace(evaluator, request.deck, trunk, true, [{ id: a, count: 1 }]);
+        expect(partial.lockedMin[a]).toBe(1);
+        expect(partial.candidates).toContain(a);
+    });
+
+    it("takes the larger of the copies in the deck and the copies a lock asks for, for a kept card", () => {
+        const request = pool(0, true);
+        const trunk = [{ id: magic[0] as number, count: 2 }];
+        const space = buildSearchSpace(evaluator, request.deck, trunk, true, [
+            { id: magic[0] as number, count: 3 },
+        ]);
+        expect(space.lockedMin[magic[0] as number]).toBe(3);
+        const below = buildSearchSpace(evaluator, request.deck, trunk, true, [
+            { id: magic[0] as number, count: 1 },
+        ]);
+        expect(below.lockedMin[magic[0] as number]).toBe(1);
+    });
+
+    it("gives a forbidden card no copies and no place among the candidates, even a kept non-monster", () => {
+        const request = pool(2, true);
+        const space = buildSearchSpace(
+            evaluator,
+            request.deck,
+            request.trunk,
+            true,
+            [],
+            [weak[0] as number, magic[0] as number, strong[0] as number]
+        );
+        for (const id of [weak[0], magic[0], strong[0]] as number[]) {
+            expect(space.limit[id]).toBe(0);
+            expect(space.lockedMin[id]).toBe(0);
+            expect(space.candidates).not.toContain(id);
+        }
+        // The cards around it are untouched.
+        expect(space.candidates).toContain(weak[1]);
+        expect(space.candidates).toContain(strong[1]);
+    });
+});
+
+describe("planExhaustive with required and forbidden cards", () => {
+    it("pins a required spare card and counts none of its copies as part of the deck", () => {
+        const a = strong[0] as number;
+        const { plan: found } = plan(pool(2), true, [{ id: a, count: 1 }]);
+        expect(found?.pinned).toEqual([a]);
+        expect(found?.movable).toHaveLength(13);
+        expect(found?.leaveOut).toBe(2);
+        expect(found?.decks).toBe(78);
+    });
+
+    it("leaves a forbidden card out of the pool, so it cannot be in any deck", () => {
+        const request = pool(4);
+        const { plan: found } = plan(request, true, [], [weak[0] as number]);
+        expect(found?.movable).not.toContain(weak[0]);
+        // 16 owned cards, 3 of them forbidden: 13 for a deck of 12.
+        expect(found?.movable).toHaveLength(13);
+        expect(found?.leaveOut).toBe(1);
+        expect(exhaustiveBest(evaluator, found!)).not.toContain(weak[0]);
+    });
+
+    it("refuses a space with no deck of that size", () => {
+        const request = pool(2);
+        const [a, b, c, d, e] = strong.slice(0, 5) as number[];
+        // 14 owned cards and 3 of them forbidden: 11 cannot make a deck of 12.
+        expect(() => plan(request, true, [], [weak[0] as number])).toThrow(/no deck of 12 cards/);
+        // 13 cards required, among them the five that exist only as one copy each.
+        const trunk = [a, b, c, d, e].map((id) => ({ id, count: 1 }));
+        const locks = [
+            { id: weak[0] as number, count: 3 },
+            { id: weak[1] as number, count: 3 },
+            { id: weak[2] as number, count: 3 },
+            { id: weak[3] as number, count: 3 },
+            { id: a, count: 1 },
+        ];
+        expect(() =>
+            planExhaustive(
+                evaluator,
+                request.deck,
+                buildSearchSpace(evaluator, request.deck, trunk, true, locks)
+            )
+        ).toThrow(/13 required/);
+    });
+});
+
+describe("exhaustiveBest with required and forbidden cards", () => {
+    it("matches a brute force on seeded random pools with random required and forbidden cards", () => {
+        const random = testRandom(404);
+        const cards = [...weak, ...fusionRichMonsters().slice(0, 25), ...magic];
+        let checked = 0;
+        for (let round = 0; round < 24 && checked < 8; round++) {
+            const pick = () => cards[Math.floor(random() * cards.length)] as number;
+            const deck = Array.from({ length: SIZE }, pick);
+            const trunk = [...countOf(Array.from({ length: 3 + (round % 3) }, pick))].map(([id, count]) => ({
+                id,
+                count,
+            }));
+            const request: DeckOptimizeRequest = { deck, trunk };
+            const owned = countOf([
+                ...deck,
+                ...trunk.flatMap(({ id, count }) => Array<number>(count).fill(id)),
+            ]);
+            const ids = [...owned.keys()];
+            // Some cards forbidden; some of the rest required, up to what the deck may hold, spare copies included.
+            const forbidden = ids.filter(() => random() < 0.2);
+            const locked = ids
+                .filter((id) => !forbidden.includes(id) && random() < 0.4)
+                .map((id) => ({
+                    id,
+                    count: 1 + Math.floor(random() * Math.min(owned.get(id) as number, MAX_COPIES_PER_CARD)),
+                }));
+            for (const keep of [true, false]) {
+                let found: ReturnType<typeof plan>["plan"];
+                try {
+                    found = plan(request, keep, locked, forbidden).plan;
+                } catch {
+                    // The rules left no deck of this size.
+                    continue;
+                }
+                if (found === null) continue;
+                checked++;
+                const best = exhaustiveBest(evaluator, found);
+                expect(best, `round ${round}`).toHaveLength(SIZE);
+                expect(totalOf(best), `round ${round}`).toBe(
+                    bruteForceBest(request, keep, locked, forbidden)
+                );
+                const held = countOf(best);
+                for (const id of forbidden) expect(held.has(id), `round ${round}`).toBe(false);
+                for (const { id, count } of locked) {
+                    expect(held.get(id) ?? 0, `round ${round}`).toBeGreaterThanOrEqual(count);
+                }
+            }
+        }
+        expect(checked).toBeGreaterThanOrEqual(4);
+    });
+
+    it("brings a required spare card in, and gives the one deck the rules leave when they fill it", () => {
+        const request = pool(2);
+        const [a, b] = [strong[0] as number, strong[1] as number];
+        const best = exhaustiveBest(evaluator, plan(request, true, [{ id: a, count: 1 }]).plan!);
+        expect(countOf(best).get(a)).toBe(1);
+        expect(totalOf(best)).toBe(bruteForceBest(request, true, [{ id: a, count: 1 }]));
+        // Twelve required copies: the whole deck is fixed, and the plan holds a single deck.
+        const locked = [
+            { id: weak[0] as number, count: 3 },
+            { id: weak[1] as number, count: 3 },
+            { id: weak[2] as number, count: 3 },
+            { id: a, count: 1 },
+            { id: b, count: 1 },
+            { id: weak[3] as number, count: 1 },
+        ];
+        const { plan: found } = plan(request, true, locked);
+        expect(found?.decks).toBe(1);
+        // Every copy that is not required is left out.
+        expect(found?.leaveOut).toBe(found?.movable.length);
+        expect(countOf(exhaustiveBest(evaluator, found!))).toEqual(
+            new Map(locked.map(({ id, count }) => [id, count]))
+        );
+    });
+});
+
+describe("feasibleStart", () => {
+    function space(
+        request: DeckOptimizeRequest,
+        keep: boolean,
+        locked: DeckLock[] = [],
+        forbidden: number[] = []
+    ) {
+        return buildSearchSpace(evaluator, request.deck, request.trunk, keep, locked, forbidden);
+    }
+
+    it("returns the same cards in the same slots when the deck already obeys the rules", () => {
+        const random = testRandom(9);
+        const cards = [...weak, ...fusionRichMonsters().slice(0, 25), ...magic];
+        for (let round = 0; round < 6; round++) {
+            const pick = () => cards[Math.floor(random() * cards.length)] as number;
+            const deck = Array.from({ length: SIZE }, pick);
+            const request: DeckOptimizeRequest = { deck, trunk: [{ id: strong[0] as number, count: 2 }] };
+            const owned = countOf(deck);
+            // A lock on a share of what the deck holds, and a forbid on a card it does not.
+            const locked = [...owned].filter(() => random() < 0.5).map(([id, count]) => ({ id, count }));
+            for (const keep of [true, false]) {
+                const rules = space(request, keep, locked, [strong[1] as number]);
+                expect(obeysRules(evaluator, rules, deck)).toBe(true);
+                expect([...feasibleStart(evaluator, rules, deck)], `round ${round}`).toEqual(deck);
+            }
+        }
+        const plain = space(pool(2), true);
+        expect([...feasibleStart(evaluator, plain, pool(2).deck)]).toEqual(pool(2).deck);
+    });
+
+    it("replaces each forbidden copy with the strongest allowed card, leaving the other slots alone", () => {
+        const request = pool(4);
+        const rules = space(request, true, [], [weak[0] as number]);
+        expect(obeysRules(evaluator, rules, request.deck)).toBe(false);
+        const start = feasibleStart(evaluator, rules, request.deck);
+        expect(start).toHaveLength(SIZE);
+        expect(obeysRules(evaluator, rules, start)).toBe(true);
+        expect([...start]).not.toContain(weak[0]);
+        start.forEach((id, slot) => {
+            if (request.deck[slot] !== weak[0]) expect(id).toBe(request.deck[slot]);
+        });
+        // The copies that entered are the strongest by their own ATK: no allowed copy left unused is stronger.
+        const entered = start.filter((_id, slot) => request.deck[slot] === weak[0]);
+        expect(entered).toHaveLength(3);
+        const held = countOf(start);
+        const weakestEntered = Math.min(...entered.map((id) => evaluator.attack[id]!));
+        for (const id of rules.candidates) {
+            if ((held.get(id) ?? 0) < rules.limit[id]!) {
+                expect(evaluator.attack[id]).toBeLessThanOrEqual(weakestEntered);
+            }
+        }
+    });
+
+    it("makes room for a required spare card by taking out the weakest copy that may leave", () => {
+        const request = pool(2);
+        const a = strong[0] as number;
+        const rules = space(request, true, [{ id: a, count: 1 }]);
+        const start = feasibleStart(evaluator, rules, request.deck);
+        expect(obeysRules(evaluator, rules, start)).toBe(true);
+        expect(countOf(start).get(a)).toBe(1);
+        const left = [...request.deck];
+        for (const id of start) {
+            const at = left.indexOf(id);
+            if (at >= 0) left.splice(at, 1);
+        }
+        // One deck card left; it has the lowest ATK of the deck.
+        expect(left).toHaveLength(1);
+        expect(evaluator.attack[left[0] as number]).toBe(
+            Math.min(...request.deck.map((id) => evaluator.attack[id]!))
+        );
+    });
+
+    it("never takes out a copy that must stay, even when it is the weakest", () => {
+        const request = pool(2);
+        const [a, w] = [strong[0] as number, weak[0] as number];
+        const rules = space(request, true, [
+            { id: w, count: 3 },
+            { id: a, count: 1 },
+        ]);
+        const start = feasibleStart(evaluator, rules, request.deck);
+        expect(countOf(start).get(w)).toBe(3);
+        expect(countOf(start).get(a)).toBe(1);
+        expect(obeysRules(evaluator, rules, start)).toBe(true);
+    });
+
+    it("gives the same deck every time, and refuses rules that leave no deck", () => {
+        const request = pool(4);
+        const rules = space(request, true, [{ id: strong[0] as number, count: 1 }], [weak[1] as number]);
+        expect(feasibleStart(evaluator, rules, request.deck)).toEqual(
+            feasibleStart(evaluator, rules, request.deck)
+        );
+        expect(() =>
+            feasibleStart(evaluator, space(pool(2), true, [], [weak[0] as number]), pool(2).deck)
+        ).toThrow(/no deck of 12 cards/);
+    });
+});
+
 describe("localSearch", () => {
     const never = (): boolean => false;
     function search(
         request: DeckOptimizeRequest,
         keep: boolean,
-        extra: { expired?: () => boolean; seed?: number; tabuSteps?: number; locked?: DeckLock[] } = {}
+        extra: {
+            expired?: () => boolean;
+            seed?: number;
+            tabuSteps?: number;
+            locked?: DeckLock[];
+            forbidden?: number[];
+        } = {}
     ) {
-        const space = buildSearchSpace(evaluator, request.deck, request.trunk, keep, extra.locked);
-        return localSearch(evaluator, space, Int16Array.from(request.deck), {
+        const space = buildSearchSpace(
+            evaluator,
+            request.deck,
+            request.trunk,
+            keep,
+            extra.locked,
+            extra.forbidden
+        );
+        return localSearch(evaluator, space, feasibleStart(evaluator, space, request.deck), {
             random: seededRandom(extra.seed ?? 1),
             expired: extra.expired ?? never,
             tabuSteps: extra.tabuSteps ?? 2,
@@ -548,5 +853,65 @@ describe("localSearch", () => {
         const result = search(request, true, { tabuSteps: 0 });
         expect(result.truncated).toBe(false);
         expect(totalOf(result.deck)).toBeGreaterThan(totalOf(request.deck));
+    });
+    describe("with required and forbidden cards", () => {
+        // The deck holds the forbidden weak[0] three times and lacks the required strong[0].
+        const rules = () => ({
+            locked: [{ id: strong[0] as number, count: 1 }],
+            forbidden: [weak[0] as number],
+        });
+
+        function expectObeys(deck: ArrayLike<number>, label: string) {
+            const { locked, forbidden } = rules();
+            const held = countOf(deck);
+            expect(deck, label).toHaveLength(SIZE);
+            for (const id of forbidden) expect(held.has(id), label).toBe(false);
+            for (const { id, count } of locked)
+                expect(held.get(id) ?? 0, label).toBeGreaterThanOrEqual(count);
+        }
+
+        it("holds the required copy and no forbidden card, whatever the seed, and finds the best deck that obeys", () => {
+            const request = pool(4);
+            const { locked, forbidden } = rules();
+            for (const seed of [1, 2, 3]) {
+                const result = search(request, true, { seed, tabuSteps: 0, locked, forbidden });
+                expectObeys(result.deck, `seed ${seed}`);
+                expect(result.truncated).toBe(false);
+                expect(totalOf(result.deck)).toBe(bruteForceBest(request, true, locked, forbidden));
+            }
+        });
+
+        it("gives a valid deck when the budget is already spent at the first check", () => {
+            const request = pool(4);
+            const { locked, forbidden } = rules();
+            const result = search(request, true, { locked, forbidden, expired: () => true });
+            expect(result.truncated).toBe(true);
+            expectObeys(result.deck, "spent");
+            expect(result.deck).toEqual(
+                feasibleStart(
+                    evaluator,
+                    buildSearchSpace(evaluator, request.deck, request.trunk, true, locked, forbidden),
+                    request.deck
+                )
+            );
+        });
+
+        it.each([1, 2, 5, 12, 30, 80])(
+            "gives a valid deck when the budget ends after %i checks",
+            (checks) => {
+                const request = pool(4);
+                const { locked, forbidden } = rules();
+                let reads = 0;
+                const result = search(request, true, { locked, forbidden, expired: () => ++reads > checks });
+                expectObeys(result.deck, `${checks} checks`);
+            }
+        );
+
+        it("refuses rules that leave no deck", () => {
+            const request = pool(2);
+            expect(() => search(request, true, { forbidden: [weak[0] as number] })).toThrow(
+                /no deck of 12 cards/
+            );
+        });
     });
 });

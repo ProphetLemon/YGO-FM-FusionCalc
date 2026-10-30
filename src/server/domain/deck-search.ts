@@ -1,4 +1,4 @@
-import { MAX_COPIES_PER_CARD } from "../../shared/limits.js";
+import { copyLimit } from "../../shared/limits.js";
 import type { DeckLock, DeckTrunkEntry } from "../../shared/types.js";
 import { DeltaEngine, fullSample, randomSample } from "./deck-engine.js";
 import { HAND_SIZE, handCount, scoreDeck } from "./deck-score.js";
@@ -45,14 +45,16 @@ export function seededRandom(seed: number): () => number {
 // What the search may do with the cards the player owns.
 export interface SearchSpace {
     keepNonMonsters: boolean;
-    // By card id, the copies the deck may hold: the copies owned, up to MAX_COPIES_PER_CARD. A deck that
-    // already holds more copies of a card than that may keep them, so the current deck is always allowed.
+    // By card id, the copies the deck may hold: the copies owned, up to MAX_COPIES_PER_CARD, and none for a
+    // forbidden card. A deck that already holds more copies of a card than that may keep them, so a deck with
+    // no forbidden card never holds more than the limit.
     limit: Int16Array;
     // By card id, the copies that always stay in the deck: all of a non-monster's copies when non-monsters are
-    // kept, and the copies the player locked. Never more than the deck holds, so the current deck satisfies it.
+    // kept, and the copies the player locked. A lock may ask for more copies than the deck holds, to bring
+    // spare cards in, so the current deck does not always satisfy it: `feasibleStart` fixes that.
     lockedMin: Int16Array;
-    // The cards that may still gain copies, ascending: owned, with copies above their locked minimum, and
-    // monsters when non-monsters are kept.
+    // The cards that may still gain copies, ascending: owned, not forbidden, with copies above their locked
+    // minimum, and monsters when non-monsters are kept.
     candidates: number[];
 }
 
@@ -61,7 +63,8 @@ export function buildSearchSpace(
     deck: readonly number[],
     trunk: readonly DeckTrunkEntry[],
     keepNonMonsters: boolean,
-    locked: readonly DeckLock[] = []
+    locked: readonly DeckLock[] = [],
+    forbidden: readonly number[] = []
 ): SearchSpace {
     const inDeck = new Int16Array(evaluator.size);
     const owned = new Int16Array(evaluator.size);
@@ -71,17 +74,46 @@ export function buildSearchSpace(
     }
     for (const { id, count } of trunk) owned[id]! += count;
     const explicit = new Int16Array(evaluator.size);
-    for (const { id, count } of locked) explicit[id] = Math.min(count, inDeck[id]!);
+    for (const { id, count } of locked) explicit[id] = count;
+    const banned = new Set(forbidden);
     const limit = new Int16Array(evaluator.size);
     const lockedMin = new Int16Array(evaluator.size);
     const candidates: number[] = [];
     for (let id = 0; id < evaluator.size; id++) {
+        // A forbidden card keeps nothing and is never a candidate, whatever the group rule says about it.
+        if (banned.has(id)) continue;
         const kept = keepNonMonsters && evaluator.monster[id] !== 1;
-        limit[id] = Math.min(owned[id]!, Math.max(MAX_COPIES_PER_CARD, inDeck[id]!));
-        lockedMin[id] = kept ? inDeck[id]! : explicit[id]!;
+        limit[id] = copyLimit(owned[id]!, inDeck[id]!);
+        lockedMin[id] = Math.max(kept ? inDeck[id]! : 0, Math.min(explicit[id]!, limit[id]!));
         if (limit[id]! > lockedMin[id]! && !kept) candidates.push(id);
     }
     return { keepNonMonsters, limit, lockedMin, candidates };
+}
+
+// The cards a deck holds when it takes every copy the rules allow, and when it takes only the copies they
+// require. A deck of `size` cards exists exactly when `size` lies between the two.
+function deckSizeRange(space: SearchSpace): { least: number; most: number } {
+    let least = 0;
+    space.lockedMin.forEach((count) => (least += count));
+    let most = least;
+    for (const id of space.candidates) most += space.limit[id]! - space.lockedMin[id]!;
+    return { least, most };
+}
+
+// Refuses a space that no deck of `size` cards fits, instead of searching it: the required copies would not
+// fit, or the allowed ones would not fill the deck. The route rejects such requests first.
+function assertFeasible(space: SearchSpace, size: number): void {
+    const { least, most } = deckSizeRange(space);
+    if (size < least || size > most) {
+        throw new Error(`The rules leave no deck of ${size} cards (${least} required, ${most} allowed)`);
+    }
+}
+
+// Whether a deck obeys the rules: it holds at least the required copies of each card and no more than the
+// allowed ones, so no forbidden card.
+export function obeysRules(evaluator: HandEvaluator, space: SearchSpace, deck: ArrayLike<number>): boolean {
+    const counts = countCards(evaluator, deck);
+    return counts.every((count, id) => count >= space.lockedMin[id]! && count <= space.limit[id]!);
 }
 
 // The copies of each card that always stay, as a list of card ids.
@@ -119,7 +151,8 @@ export interface ExhaustivePlan {
     // Copies that may be left out, by card id, and whether each is part of the current deck.
     movable: number[];
     inCurrent: boolean[];
-    // Copies that always stay: the non-monsters of the deck when they are kept, and the locked cards.
+    // Copies that always stay: the non-monsters of the deck when they are kept, and the locked cards, whether
+    // those copies are in the deck or among the spare cards.
     pinned: number[];
     // How many movable copies are left out of the pool to make a 40-card deck.
     leaveOut: number;
@@ -127,22 +160,27 @@ export interface ExhaustivePlan {
     decks: number;
 }
 
-// Plans the exhaustive search, or returns null when the pool allows more than `maxDecks` decks.
+// Plans the exhaustive search, or returns null when the pool allows more than `maxDecks` decks. Throws when
+// the rules leave no deck of that size. Needs no start: the required copies are pinned and a forbidden card
+// is not in the pool, so every deck of the plan obeys the rules.
 export function planExhaustive(
     evaluator: HandEvaluator,
     deck: readonly number[],
     space: SearchSpace,
     maxDecks: number = EXHAUSTIVE_MAX_DECKS
 ): ExhaustivePlan | null {
+    assertFeasible(space, deck.length);
     const inDeck = countCards(evaluator, deck);
     const movable: number[] = [];
     const inCurrent: boolean[] = [];
     for (const id of space.candidates) {
         // The locked copies are pinned, so the movable ones are the rest, and the first ones are in the deck.
+        // A lock above the copies the deck holds pins copies from the spare cards, so none of them is left.
         const open = space.limit[id]! - space.lockedMin[id]!;
+        const held = Math.max(0, inDeck[id]! - space.lockedMin[id]!);
         for (let copy = 0; copy < open; copy++) {
             movable.push(id);
-            inCurrent.push(copy < inDeck[id]! - space.lockedMin[id]!);
+            inCurrent.push(copy < held);
         }
     }
     const pinned = lockedCopies(space);
@@ -273,7 +311,8 @@ export interface LocalSearchResult {
 interface Context extends LocalSearchOptions {
     evaluator: HandEvaluator;
     space: SearchSpace;
-    // The player's current deck, and its copies of each card.
+    // The deck the search starts from and walks back towards, and its copies of each card. It obeys the rules,
+    // which the player's own deck may not: see `feasibleStart`.
     original: Int16Array;
     originalCounts: Int16Array;
 }
@@ -295,9 +334,67 @@ interface Found {
     engine: DeltaEngine | null;
 }
 
+// A deck of the same size as `deck` that obeys the rules, changed as little as it can be: the search starts
+// from it, so its restore rule never brings back a forbidden card and a spent budget still gives a valid
+// deck. Each forbidden copy is replaced, room is made for each required copy by taking out the weakest copy
+// that may leave, and any gap is filled with the strongest allowed card. A card is weak or strong by its own
+// ATK (a non-monster counts 0): the search that follows finds the real worth. Deterministic, and a deck that
+// already obeys the rules comes back with the same cards in the same slots. Throws when no deck fits.
+export function feasibleStart(
+    evaluator: HandEvaluator,
+    space: SearchSpace,
+    deck: readonly number[]
+): Int16Array {
+    assertFeasible(space, deck.length);
+    const result = Int16Array.from(deck);
+    const held = new Int16Array(evaluator.size);
+    const vacant: number[] = [];
+    // Keep the first copies of a card up to its limit; the rest (all of a forbidden card) have to go.
+    result.forEach((id, slot) => {
+        if (held[id]! < space.limit[id]!) held[id]! += 1;
+        else vacant.push(slot);
+    });
+    const missing: number[] = [];
+    space.lockedMin.forEach((minimum, id) => {
+        for (let copy = held[id]!; copy < minimum; copy++) missing.push(id);
+    });
+    // Required copies without a vacant slot take the slot of the weakest copy that may leave; of equal
+    // ones, the last slot, so the cards at the front of the deck stay where they are.
+    while (vacant.length < missing.length) {
+        let weakest = -1;
+        result.forEach((id, slot) => {
+            if (vacant.includes(slot) || held[id]! <= space.lockedMin[id]!) return;
+            if (weakest < 0 || evaluator.attack[id]! <= evaluator.attack[result[weakest]!]!) weakest = slot;
+        });
+        if (weakest < 0) throw new Error("No copy can leave the deck to make room for the required ones");
+        held[result[weakest]!]! -= 1;
+        vacant.push(weakest);
+    }
+    vacant.sort((a, b) => a - b);
+    for (const slot of vacant) {
+        let id = missing.shift();
+        if (id === undefined) {
+            // The strongest allowed card, the lowest id among equals.
+            id = space.candidates.reduce(
+                (top, next) =>
+                    held[next]! < space.limit[next]! &&
+                    (top < 0 || evaluator.attack[next]! > evaluator.attack[top]!)
+                        ? next
+                        : top,
+                -1
+            );
+        }
+        if (id < 0) throw new Error("No allowed card is left to fill the deck");
+        result[slot] = id;
+        held[id]! += 1;
+    }
+    return result;
+}
+
 // Local search for a pool too large to enumerate: from three starts it climbs by the best single swap,
 // first on a sample of the hands and then on all of them, keeps the best, and tries a few tabu steps.
 // Every swap is scored by the incremental engine, so a step costs a fraction of scoring the deck again.
+// `original` must obey the rules (see `feasibleStart`), and so does every deck the search returns.
 // The result is a deck that no single swap with any owned card improves, which a final sweep confirms (the
 // search itself only tries a shortlist), unless the budget ended first: then `truncated` is true. It is not
 // a proven optimum: a swap of two or more cards at once could still help.
@@ -307,6 +404,7 @@ export function localSearch(
     original: Int16Array,
     options: LocalSearchOptions
 ): LocalSearchResult {
+    assertFeasible(space, original.length);
     const ctx: Context = {
         ...options,
         evaluator,

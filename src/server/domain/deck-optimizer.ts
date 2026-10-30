@@ -14,7 +14,9 @@ import {
     EXHAUSTIVE_MAX_DECKS,
     buildSearchSpace,
     exhaustiveBest,
+    feasibleStart,
     localSearch,
+    obeysRules,
     planExhaustive,
     seededRandom,
 } from "./deck-search.js";
@@ -29,7 +31,7 @@ const TOP_FINALS = 8;
 
 export interface DeckOptimizeOptions {
     // Non-monster cards of the current deck stay in. The score cannot see their value. Default true. The
-    // cards of `request.locked` stay in either way.
+    // cards of `request.locked` stay in either way, and the cards of `request.forbidden` stay out.
     keepNonMonsters?: boolean;
     // Seeds the sampling of the local search, so one input always gives one answer (when no budget is hit).
     seed?: number;
@@ -121,7 +123,16 @@ export function optimizeDeck(
 
     const evaluator = getHandEvaluator();
     const original = Int16Array.from(request.deck);
-    const space = buildSearchSpace(evaluator, request.deck, request.trunk, keepNonMonsters, request.locked);
+    const space = buildSearchSpace(
+        evaluator,
+        request.deck,
+        request.trunk,
+        keepNonMonsters,
+        request.locked,
+        request.forbidden
+    );
+    // The rules may rule out the player's own deck (a forbidden card in it, a required card missing).
+    const valid = obeysRules(evaluator, space, original);
 
     let found: ArrayLike<number>;
     let method: DeckOptimizeMethod;
@@ -136,7 +147,8 @@ export function optimizeDeck(
         found = exhaustiveBest(evaluator, plan);
         method = "exhaustive";
     } else {
-        const result = localSearch(evaluator, space, original, {
+        // The search starts from a deck that obeys the rules; when the player's deck does, that is the same deck.
+        const result = localSearch(evaluator, space, feasibleStart(evaluator, space, request.deck), {
             random: seededRandom(options.seed ?? DEFAULT_SEED),
             expired: () => now() >= deadline,
             ...(options.tabuSteps === undefined ? {} : { tabuSteps: options.tabuSteps }),
@@ -150,10 +162,12 @@ export function optimizeDeck(
     const current = scoreDeck(evaluator, original);
     const unchanged = sameCards(original, found);
     const candidate = unchanged ? current : scoreDeck(evaluator, found);
-    // A search that found nothing better leaves the deck as it was.
-    const improved = candidate.totalAtk > current.totalAtk;
-    const recommended = improved ? candidate : current;
-    const { deck, swaps } = improved
+    // A search that found nothing better leaves the deck as it was, when that deck obeys the rules. When it
+    // does not, the deck found is the answer even if it scores lower: `current` stays the player's own deck,
+    // so the loss shows.
+    const replaced = !valid || candidate.totalAtk > current.totalAtk;
+    const recommended = replaced ? candidate : current;
+    const { deck, swaps } = replaced
         ? arrangeDeck(request.deck, found)
         : { deck: [...request.deck], swaps: [] };
 

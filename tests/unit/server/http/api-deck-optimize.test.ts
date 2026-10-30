@@ -4,6 +4,8 @@ import type { AddressInfo } from "node:net";
 import request from "supertest";
 import { createApp } from "../../../../src/server/app.js";
 import { DECK_SIZE, MAX_TRUNK_COUNT } from "../../../../src/shared/limits.js";
+import { getAllCards, loadStore } from "../../../../src/server/data/store.js";
+import { isMonster } from "../../../../src/server/domain/cards.js";
 import type { DeckOptimizeResponse } from "../../../../src/shared/types.js";
 import {
     createDeckOptimizerService,
@@ -29,7 +31,13 @@ const TRUNK = [
 
 // A real answer, for the tests that hold an optimisation open and then let it finish.
 let answer: DeckOptimizeResponse;
+// Non-monster cards, for the rules that treat them apart.
+let magic: number[];
 beforeAll(async () => {
+    loadStore();
+    magic = getAllCards()
+        .filter((card) => !isMonster(card))
+        .map((card) => card.Id);
     answer = await runInWorker({ deck: DECK, trunk: [] });
 });
 
@@ -282,13 +290,118 @@ describe("POST /api/deck/optimize", () => {
                 { id: 1, count: 1 },
             ],
         ],
-        ["more copies than the deck holds", [{ id: 1, count: 2 }]],
-        ["a card that is not in the deck", [{ id: 296, count: 1 }]],
+        ["more copies than the player owns", [{ id: 1, count: 2 }]],
+        ["more copies than the spare cards hold", [{ id: 397, count: 3 }]],
+        ["a card the player does not own", [{ id: 500, count: 1 }]],
     ];
     it.each(INVALID_LOCKS)("400 invalid-locks for %s", async (_name, locked) => {
         const res = await post({ deck: DECK, trunk: TRUNK, locked });
         expect(res.status).toBe(400);
         expect(res.body.error.code).toBe("invalid-locks");
+    });
+
+    const ids = (body: { deck: Array<{ id: number }> }): number[] => body.deck.map((card) => card.id);
+
+    it("200 with a lock on spare cards, which the recommended deck holds", async () => {
+        // Card 296 is only in the trunk, once, and 397 twice: a lock above what the deck holds is legal.
+        const locked = [
+            { id: 296, count: 1 },
+            { id: 397, count: 2 },
+        ];
+        const res = await post({ deck: DECK, trunk: TRUNK, locked });
+        expect(res.status).toBe(200);
+        const held = ids(res.body);
+        expect(held).toHaveLength(DECK_SIZE);
+        expect(held).toContain(296);
+        expect(held.filter((id) => id === 397)).toHaveLength(2);
+    });
+
+    it("200 with forbidden cards, which the recommended deck never holds, in the deck or spare", async () => {
+        const res = await post({ deck: DECK, trunk: TRUNK, forbidden: [1, 296] });
+        expect(res.status).toBe(200);
+        expect(ids(res.body)).toHaveLength(DECK_SIZE);
+        expect(ids(res.body)).not.toContain(1);
+        expect(ids(res.body)).not.toContain(296);
+        // The player's own deck still holds card 1, so `current` is the real deck.
+        expect((await post({ deck: DECK, trunk: TRUNK, forbidden: [] })).status).toBe(200);
+    });
+
+    it("200 when a forbidden non-monster of the deck is not kept, whatever keepNonMonsters says", async () => {
+        const deck = [...DECK.slice(1), magic[0] as number];
+        const res = await post({ deck, trunk: TRUNK, forbidden: [magic[0]] });
+        expect(res.status).toBe(200);
+        expect(ids(res.body)).not.toContain(magic[0]);
+    });
+
+    const INVALID_FORBIDDEN: ReadonlyArray<readonly [string, unknown]> = [
+        ["a forbidden that is not an array", { 1: true }],
+        ["a null forbidden", null],
+        ["a number", 7],
+        [
+            "more entries than the deck and the trunk hold",
+            Array.from({ length: DECK_SIZE + 3 }, (_, i) => i + 1),
+        ],
+        ["a float id", [1.5]],
+        ["a zero id", [0]],
+        ["a string id", ["1"]],
+        ["an entry that is not a number", [{ id: 1 }]],
+        ["an id that matches no card", [999_999]],
+        ["a repeated id", [1, 1]],
+        ["a card the player does not own", [500]],
+        ["a card that is also locked", [1]],
+    ];
+    it.each(INVALID_FORBIDDEN)("400 invalid-forbidden for %s", async (name, forbidden) => {
+        const locked = name === "a card that is also locked" ? [{ id: 1, count: 1 }] : undefined;
+        const res = await post({ deck: DECK, trunk: TRUNK, forbidden, ...(locked ? { locked } : {}) });
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe("invalid-forbidden");
+    });
+
+    it("400 invalid-forbidden for a card whose spare copies are zero", async () => {
+        const res = await post({ deck: DECK, trunk: [{ id: 600, count: 0 }], forbidden: [600] });
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe("invalid-forbidden");
+    });
+
+    it("400 impossible-deck when the required copies are more than the deck holds", async () => {
+        // 14 cards in 3 copies each is 42 cards.
+        const cards = Array.from({ length: 14 }, (_, i) => i + 1);
+        const res = await post({
+            deck: DECK,
+            trunk: cards.map((id) => ({ id, count: 2 })),
+            locked: cards.map((id) => ({ id, count: 3 })),
+        });
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe("impossible-deck");
+        expect(res.body.error.details).toEqual({
+            required: 42,
+            allowed: expect.any(Number),
+            size: DECK_SIZE,
+        });
+    });
+
+    it("400 impossible-deck when the cards allowed do not reach the deck", async () => {
+        const res = await post({ deck: DECK, trunk: [], forbidden: [1] });
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe("impossible-deck");
+        expect(res.body.error.details).toEqual({ required: 0, allowed: DECK_SIZE - 1, size: DECK_SIZE });
+    });
+
+    it("counts spare non-monsters as out unless non-monsters are free to move", async () => {
+        const deck = [...DECK.slice(1), magic[0] as number];
+        const trunk = [{ id: magic[1] as number, count: 3 }];
+        // The deck loses card 2 and the spare non-monsters stay out: 39 cards allowed.
+        const kept = await post({ deck, trunk, forbidden: [2] });
+        expect(kept.status).toBe(400);
+        expect(kept.body.error.code).toBe("impossible-deck");
+        // Free to move, the 3 spare copies fill the gap.
+        const free = await post({ deck, trunk, forbidden: [2], keepNonMonsters: false });
+        expect(free.status).toBe(200);
+        expect(ids(free.body)).not.toContain(2);
+        // Locking the spare non-monster brings it in, even when non-monsters are kept.
+        const locked = await post({ deck, trunk, forbidden: [2], locked: [{ id: magic[1], count: 3 }] });
+        expect(locked.status).toBe(200);
+        expect(ids(locked.body).filter((id) => id === magic[1])).toHaveLength(3);
     });
 
     it("400 unknown-card for a deck id that matches no card", async () => {

@@ -1,14 +1,20 @@
 import { type NextFunction, type Request, type Response, Router } from "express";
 import express from "express";
-import { DECK_SIZE, MAX_HAND_SIZE, MAX_TRUNK_COUNT } from "../../../shared/limits.js";
-import type { DeckLock, DeckOptimizeRequest } from "../../../shared/types.js";
+import {
+    DECK_SIZE,
+    MAX_HAND_SIZE,
+    MAX_TRUNK_COUNT,
+    MAX_COPIES_PER_CARD,
+    copyLimit,
+} from "../../../shared/limits.js";
+import type { DeckLock, DeckOptimizeRequest, DeckTrunkEntry } from "../../../shared/types.js";
 import { findCombinations } from "../../domain/calculator.js";
 import { findBestChains } from "../../domain/chain-search.js";
 import { getEquipsFor } from "../../domain/equips.js";
 import { getFusionsFor } from "../../domain/fusions.js";
 import { getResultsFor } from "../../domain/results.js";
 import { findCardByExactName } from "../../domain/search.js";
-import { listCardIndex, toCardSummary } from "../../domain/cards.js";
+import { isMonster, listCardIndex, toCardSummary } from "../../domain/cards.js";
 import { getAllCards, getCardById } from "../../data/store.js";
 import {
     OptimizerAbortedError,
@@ -72,13 +78,26 @@ function isCardId(value: unknown): value is number {
     return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
+// Copies of each card the player owns: the deck's and the trunk's.
+function ownedCopies(deck: readonly number[], trunk: readonly DeckTrunkEntry[]): Map<number, number> {
+    const owned = new Map<number, number>();
+    for (const id of deck) owned.set(id, (owned.get(id) ?? 0) + 1);
+    for (const { id, count } of trunk) owned.set(id, (owned.get(id) ?? 0) + count);
+    return owned;
+}
+
 // The locks of a deck request, or null when they are malformed: at most one entry per card of the deck, with
-// distinct ids of known cards, and counts from 1 up to the copies the deck holds. Omitted means none.
-function readLocks(locked: unknown, deck: readonly number[]): DeckLock[] | null {
+// distinct ids of known cards, and counts from 1 up to the copies the deck may hold of that card (the copies
+// owned, up to the copy limit), which may be more than the deck holds now. Omitted means none.
+function readLocks(
+    locked: unknown,
+    deck: readonly number[],
+    owned: ReadonlyMap<number, number>
+): DeckLock[] | null {
     if (locked === undefined) return [];
     if (!Array.isArray(locked) || locked.length > DECK_SIZE) return null;
-    const copies = new Map<number, number>();
-    for (const id of deck) copies.set(id, (copies.get(id) ?? 0) + 1);
+    const inDeck = new Map<number, number>();
+    for (const id of deck) inDeck.set(id, (inDeck.get(id) ?? 0) + 1);
     const seen = new Set<number>();
     const locks: DeckLock[] = [];
     for (const entry of locked as unknown[]) {
@@ -86,18 +105,64 @@ function readLocks(locked: unknown, deck: readonly number[]): DeckLock[] | null 
         const { id, count } = entry;
         if (getCardById(id) === undefined) return null;
         if (typeof count !== "number" || !Number.isInteger(count) || count < 1) return null;
-        if (count > (copies.get(id) ?? 0)) return null;
+        if (count > copyLimit(owned.get(id) ?? 0, inDeck.get(id) ?? 0)) return null;
         seen.add(id);
         locks.push({ id, count });
     }
     return locks;
 }
 
+// The forbidden cards of a deck request, or null when they are malformed: at most one entry per card the
+// player owns, distinct ids of known cards the player owns, none of them locked. Omitted means none.
+function readForbidden(
+    forbidden: unknown,
+    owned: ReadonlyMap<number, number>,
+    locks: readonly DeckLock[]
+): number[] | null {
+    if (forbidden === undefined) return [];
+    if (!Array.isArray(forbidden) || forbidden.length > owned.size) return null;
+    const locked = new Set(locks.map(({ id }) => id));
+    const seen = new Set<number>();
+    for (const id of forbidden as unknown[]) {
+        if (!isCardId(id) || seen.has(id) || locked.has(id)) return null;
+        if (getCardById(id) === undefined || (owned.get(id) ?? 0) === 0) return null;
+        seen.add(id);
+    }
+    return [...seen];
+}
+
+// Whether any deck of the deck's size obeys the rules, worked out from the store's card data so the main
+// thread never loads the hand evaluator. It mirrors `buildSearchSpace`: a forbidden card holds nothing, a
+// non-monster of the deck is required when non-monsters are kept, a lock requires its copies, and only cards
+// that are not kept can add copies above their requirement. Reports the copies the rules require and allow.
+function deckFits(
+    request: DeckOptimizeRequest,
+    keepNonMonsters: boolean,
+    owned: ReadonlyMap<number, number>
+): { fits: boolean; required: number; allowed: number } {
+    const inDeck = new Map<number, number>();
+    for (const id of request.deck) inDeck.set(id, (inDeck.get(id) ?? 0) + 1);
+    const locks = new Map((request.locked ?? []).map(({ id, count }) => [id, count]));
+    const banned = new Set(request.forbidden ?? []);
+    let required = 0;
+    let allowed = 0;
+    for (const [id, copies] of owned) {
+        if (banned.has(id)) continue;
+        const card = getCardById(id);
+        const kept = keepNonMonsters && card !== undefined && !isMonster(card);
+        const limit = copyLimit(copies, inDeck.get(id) ?? 0);
+        const minimum = Math.max(kept ? (inDeck.get(id) ?? 0) : 0, Math.min(locks.get(id) ?? 0, limit));
+        required += minimum;
+        allowed += kept ? minimum : limit;
+    }
+    return { fits: required <= DECK_SIZE && DECK_SIZE <= allowed, required, allowed };
+}
+
 // Reads the body of POST /deck/optimize: sends the 400 itself and returns null when it cannot be used. The
 // counts are only checked for shape and range here; the optimiser trusts nothing beyond them.
 function readDeckRequest(req: Request, res: Response): DeckOptimizeRequest | null {
     const body: Record<string, unknown> = isRecord(req.body) ? req.body : {};
-    const { deck, trunk, keepNonMonsters, locked } = body;
+    const { deck, trunk, keepNonMonsters, locked, forbidden } = body;
 
     if (!Array.isArray(deck) || deck.length !== DECK_SIZE || !deck.every(isCardId)) {
         sendError(res, 400, {
@@ -139,20 +204,42 @@ function readDeckRequest(req: Request, res: Response): DeckOptimizeRequest | nul
         sendError(res, 400, { code: "unknown-card", message: `No card with id ${unknown}` });
         return null;
     }
-    const locks = readLocks(locked, deck);
+    const cards = deck as number[];
+    const spare = (entries as Array<{ id: number; count: number }>).map(({ id, count }) => ({ id, count }));
+    const owned = ownedCopies(cards, spare);
+    const locks = readLocks(locked, cards, owned);
     if (locks === null) {
         sendError(res, 400, {
             code: "invalid-locks",
-            message: `locked must be an array of at most ${DECK_SIZE} { id, count } with distinct ids of known cards, and counts from 1 up to the copies of that card in the deck`,
+            message: `locked must be an array of at most ${DECK_SIZE} { id, count } with distinct ids of known cards, and counts from 1 up to the copies of that card the deck may hold (the copies owned, up to ${MAX_COPIES_PER_CARD})`,
         });
         return null;
     }
-    return {
-        deck: deck as number[],
-        trunk: (entries as Array<{ id: number; count: number }>).map(({ id, count }) => ({ id, count })),
+    const banned = readForbidden(forbidden, owned, locks);
+    if (banned === null) {
+        sendError(res, 400, {
+            code: "invalid-forbidden",
+            message: `forbidden must be an array of distinct ids of cards you own, at most ${owned.size} of them, none of them in locked`,
+        });
+        return null;
+    }
+    const request: DeckOptimizeRequest = {
+        deck: cards,
+        trunk: spare,
         ...(keepNonMonsters === undefined ? {} : { keepNonMonsters }),
         ...(locks.length === 0 ? {} : { locked: locks }),
+        ...(banned.length === 0 ? {} : { forbidden: banned }),
     };
+    const { fits, required, allowed } = deckFits(request, keepNonMonsters ?? true, owned);
+    if (!fits) {
+        sendError(res, 400, {
+            code: "impossible-deck",
+            message: `The rules leave no deck of ${DECK_SIZE} cards: they require ${required} cards and allow ${allowed}`,
+            details: { required, allowed, size: DECK_SIZE },
+        });
+        return null;
+    }
+    return request;
 }
 
 export interface ApiDependencies {
