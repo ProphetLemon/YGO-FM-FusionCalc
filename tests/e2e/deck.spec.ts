@@ -101,14 +101,53 @@ async function chooseFile(page: Page, file = saveFile()): Promise<void> {
 }
 
 const compute = (page: Page) => page.getByRole("button", { name: "Calcular el mejor mazo" });
-// The 40 tiles of the deck before computing, each a toggle.
-const tiles = (page: Page) => page.locator("#deck-lock-grid button");
-const lockedTiles = (page: Page) => page.locator('#deck-lock-grid button[aria-pressed="true"]');
+// The 40 tiles of the deck before computing, each a lock toggle with a forbid toggle beside it.
+const tiles = (page: Page) => page.locator('#deck-lock-grid button[data-action="lock"]');
+const lockedTiles = (page: Page) =>
+    page.locator('#deck-lock-grid button[data-action="lock"][aria-pressed="true"]');
+const forbids = (page: Page) => page.locator('#deck-lock-grid button[data-action="forbid"]');
+// The rows of the spare cards, strongest first: Blue-eyes Ultimate Dragon, Black Luster Soldier, then
+// Blue-eyes White Dragon.
+const rows = (page: Page) => page.locator("#deck-trunk-list li");
+const ULTIMATE = 0;
+const LUSTER = 1;
+const WHITE = 2;
+const rowButton = (page: Page, row: number, action: "add" | "remove" | "forbid") =>
+    rows(page).nth(row).locator(`button[data-action="${action}"]`);
+const addedTiles = (page: Page) => page.locator("#deck-added-list button");
+const countLine = (locked = NON_MONSTERS.length, added = 0, forbidden = 0): string =>
+    `Bloqueadas: ${locked} de 40. Añadidas: ${added}. Prohibidas: ${forbidden}.`;
 // The slot of the first non-monster of DECK.
 const FIRST_SPELL = WEAK.length * 3;
 
 function bodyOf(request: { postDataJSON(): unknown }): Record<string, unknown> {
     return request.postDataJSON() as Record<string, unknown>;
+}
+
+// A save whose deck already holds one Blue-eyes White Dragon (the last weak slot is swapped for it), while
+// the trunk still has three: adding one has to lock the copy the deck holds.
+const HOLDING_DECK = DECK.map((id, slot) => (slot === WEAK.length * 3 - 1 ? 1 : id));
+const HOLDING_SLOT = WEAK.length * 3 - 1;
+
+function holdingSave(): { name: string; mimeType: string; buffer: Buffer } {
+    return {
+        name: "holding.sav",
+        mimeType: "application/octet-stream",
+        buffer: Buffer.from(makeBlock(HOLDING_DECK, TRUNK)),
+    };
+}
+
+// Computes with the page as it is and reads what the real optimiser answered.
+async function computeAndRead(
+    page: Page
+): Promise<{ body: Record<string, unknown>; deck: number[]; swaps: number }> {
+    const requestSent = page.waitForRequest("**/api/deck/optimize");
+    const responded = page.waitForResponse("**/api/deck/optimize");
+    await compute(page).click();
+    const body = bodyOf(await requestSent);
+    const answerBody = (await (await responded).json()) as { deck: Array<{ id: number }>; swaps: unknown[] };
+    await expect(page.locator("#deck-results")).toBeVisible({ timeout: 15_000 });
+    return { body, deck: answerBody.deck.map((c) => c.id), swaps: answerBody.swaps.length };
 }
 
 test.beforeEach(async ({ page }) => {
@@ -131,7 +170,13 @@ test.describe("with the real optimiser", () => {
         await compute(page).click();
         const request = await requestSent;
         const body = request.postDataJSON() as Record<string, unknown>;
-        expect(Object.keys(body).sort()).toEqual(["deck", "keepNonMonsters", "locked", "trunk"]);
+        expect(Object.keys(body).sort()).toEqual([
+            "deck",
+            "forbidden",
+            "keepNonMonsters",
+            "locked",
+            "trunk",
+        ]);
         expect(body.deck).toEqual(DECK);
         expect(body.trunk).toEqual([
             { id: 1, count: 3 },
@@ -140,6 +185,7 @@ test.describe("with the real optimiser", () => {
         ]);
         expect(body.keepNonMonsters).toBe(false);
         expect(body.locked).toEqual(NON_MONSTERS.map((id) => ({ id, count: 1 })));
+        expect(body.forbidden).toEqual([]);
         expect(request.postData()).not.toContain(PLAYER_NAME);
 
         const heading = page.getByRole("heading", { name: "Mazo recomendado" }).last();
@@ -179,6 +225,75 @@ test.describe("with the real optimiser", () => {
         expect(body.locked).toEqual(NON_MONSTERS.slice(1).map((id) => ({ id, count: 1 })));
         await expect(page.locator("#deck-results")).toBeVisible({ timeout: 15_000 });
     });
+
+    test("an added spare card is sent as locked and marked as added in the result", async ({ page }) => {
+        await chooseFile(page);
+        await page.locator("#deck-trunk-summary").click();
+        await rowButton(page, WHITE, "add").click();
+        await expect(addedTiles(page)).toHaveCount(1);
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length, 1, 0));
+
+        const { body, deck } = await computeAndRead(page);
+
+        expect(body.locked).toContainEqual({ id: 1, count: 1 });
+        expect(deck).toContain(1);
+        const marked = page.locator("#deck-results li[data-added='true']");
+        await expect(marked).toHaveCount(1);
+        await expect(marked).toContainText("Añadida");
+    });
+
+    test("a forbidden deck card is not in the result", async ({ page }) => {
+        await chooseFile(page);
+        const first = await computeAndRead(page);
+        // A weak card the unconstrained answer keeps, so that the ban is what takes it out.
+        const kept = WEAK.find((id) => first.deck.filter((card) => card === id).length === 3) as number;
+        expect(kept).toBeDefined();
+
+        await forbids(page).nth(DECK.indexOf(kept)).click();
+        await expect(page.locator("#deck-results")).toBeHidden();
+        const { body, deck } = await computeAndRead(page);
+
+        expect(body.forbidden).toEqual([kept]);
+        expect(deck).not.toContain(kept);
+    });
+
+    test("a forbidden spare card stays out of the result", async ({ page }) => {
+        await chooseFile(page);
+        const first = await computeAndRead(page);
+        // The strongest spare card is in the unconstrained answer, so the ban is what keeps it out.
+        expect(first.deck).toContain(380);
+
+        await page.locator("#deck-trunk-summary").click();
+        await rowButton(page, ULTIMATE, "forbid").click();
+        await expect(rowButton(page, ULTIMATE, "forbid")).toHaveAttribute("aria-pressed", "true");
+        await expect(rows(page).nth(ULTIMATE).getByText("Prohibida", { exact: true })).toBeVisible();
+        const { body, deck } = await computeAndRead(page);
+
+        expect(body.forbidden).toEqual([380]);
+        expect(deck).not.toContain(380);
+    });
+
+    test("adding a spare card and forbidding a deck card is an exact swap", async ({ page }) => {
+        await chooseFile(page);
+        const leaving = WEAK[0] as number;
+        // Everything else stays: the copies of the weak card are the only free slots.
+        for (let slot = 0; slot < WEAK.length * 3; slot++) {
+            if (DECK[slot] !== leaving) await tiles(page).nth(slot).click();
+        }
+        await page.locator("#deck-trunk-summary").click();
+        for (let copy = 0; copy < 3; copy++) await rowButton(page, WHITE, "add").click();
+        await forbids(page).nth(DECK.indexOf(leaving)).click();
+        await expect(page.locator("#lock-count")).toHaveText(
+            countLine(WEAK.length * 3 - 3 + NON_MONSTERS.length, 3, 1)
+        );
+
+        const { deck, swaps } = await computeAndRead(page);
+
+        const expected = [...DECK.filter((id) => id !== leaving), 1, 1, 1];
+        expect([...deck].sort((a, b) => a - b)).toEqual(expected.sort((a, b) => a - b));
+        expect(swaps).toBe(3);
+        await expect(page.locator("#deck-results li[data-added='true']")).toHaveCount(3);
+    });
 });
 
 test.describe("the deck and the spare cards before computing", () => {
@@ -192,7 +307,7 @@ test.describe("the deck and the spare cards before computing", () => {
         for (let slot = 0; slot < 40; slot++) {
             await expect(tiles(page).nth(slot)).toHaveAttribute("aria-pressed", String(slot >= FIRST_SPELL));
         }
-        await expect(page.locator("#lock-count")).toHaveText("4 de 40 cartas bloqueadas");
+        await expect(page.locator("#lock-count")).toHaveText(countLine(4));
         await expect(tiles(page).first()).toHaveAccessibleName(/, sin bloquear$/);
         await expect(tiles(page).last()).toHaveAccessibleName(/, bloqueada$/);
     });
@@ -201,15 +316,16 @@ test.describe("the deck and the spare cards before computing", () => {
         await chooseFile(page);
 
         const summary = page.locator("#deck-trunk-summary");
-        await expect(summary).toHaveText("Cartas disponibles (7)");
-        const rows = page.locator("#deck-trunk-list li");
-        await expect(rows.first()).toBeHidden();
+        await expect(summary).toHaveText(
+            "Cartas disponibles (7): aquí puedes añadirlas al mazo o prohibirlas"
+        );
+        await expect(rows(page).first()).toBeHidden();
         await summary.click();
-        await expect(rows).toHaveCount(3);
-        await expect(rows.first()).toContainText(/ATK 4\.?500/);
-        await expect(rows.first()).toContainText("×1");
-        await expect(rows.nth(1)).toContainText("×3");
-        await expect(rows.nth(2)).toContainText("×3");
+        await expect(rows(page)).toHaveCount(3);
+        await expect(rows(page).first()).toContainText(/ATK 4\.?500/);
+        await expect(rows(page).first()).toContainText("×1");
+        await expect(rows(page).nth(1)).toContainText("×3");
+        await expect(rows(page).nth(2)).toContainText("×3");
     });
 
     test("unlocking a spell changes the locks that are sent", async ({ page }) => {
@@ -218,7 +334,7 @@ test.describe("the deck and the spare cards before computing", () => {
 
         await tiles(page).nth(FIRST_SPELL).click();
         await expect(tiles(page).nth(FIRST_SPELL)).toHaveAttribute("aria-pressed", "false");
-        await expect(page.locator("#lock-count")).toHaveText("3 de 40 cartas bloqueadas");
+        await expect(page.locator("#lock-count")).toHaveText(countLine(3));
 
         const requestSent = page.waitForRequest("**/api/deck/optimize");
         await compute(page).click();
@@ -261,7 +377,7 @@ test.describe("the deck and the spare cards before computing", () => {
         await expect(tile).toBeFocused();
         await page.keyboard.press("Enter");
         await expect(tile).toHaveAttribute("aria-pressed", "true");
-        await expect(page.locator("#lock-count")).toHaveText("4 de 40 cartas bloqueadas");
+        await expect(page.locator("#lock-count")).toHaveText(countLine(4));
     });
 
     test("changing a lock after a result discards the result", async ({ page }) => {
@@ -295,13 +411,13 @@ test.describe("the deck and the spare cards before computing", () => {
 
         await tiles(page).nth(0).click();
         await tiles(page).nth(FIRST_SPELL).click();
-        await expect(page.locator("#lock-count")).toHaveText("4 de 40 cartas bloqueadas");
+        await expect(page.locator("#lock-count")).toHaveText(countLine(4));
         await expect(tiles(page).nth(0)).toHaveAttribute("aria-pressed", "true");
 
         await page.getByRole("radio", { name: /Partida 2/ }).check();
         await expect(tiles(page).nth(0)).toHaveAttribute("aria-pressed", "false");
         await expect(tiles(page).nth(FIRST_SPELL)).toHaveAttribute("aria-pressed", "true");
-        await expect(page.locator("#lock-count")).toHaveText("4 de 40 cartas bloqueadas");
+        await expect(page.locator("#lock-count")).toHaveText(countLine(4));
         const other = page.waitForRequest("**/api/deck/optimize");
         await compute(page).click();
         expect(bodyOf(await other).locked).toEqual([305, 301, 302, 303].map((id) => ({ id, count: 1 })));
@@ -309,14 +425,14 @@ test.describe("the deck and the spare cards before computing", () => {
         await tiles(page).nth(0).click();
         await page.getByLabel("Archivo de la partida").setInputFiles(saveFile("again.sav"));
         await expect(tiles(page).nth(0)).toHaveAttribute("aria-pressed", "false");
-        await expect(page.locator("#lock-count")).toHaveText("4 de 40 cartas bloqueadas");
+        await expect(page.locator("#lock-count")).toHaveText(countLine(4));
     });
 
     test("the deck and the spare cards do not scroll the page sideways at 375 px", async ({ page }) => {
         await page.setViewportSize({ width: 375, height: 800 });
         await chooseFile(page);
         await page.locator("#deck-trunk-summary").click();
-        await expect(page.locator("#deck-trunk-list li")).toHaveCount(3);
+        await expect(rows(page)).toHaveCount(3);
 
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
         expect(overflow).toBe(0);
@@ -342,6 +458,240 @@ test.describe("the deck and the spare cards before computing", () => {
 
         await expect(page.getByRole("alert")).toContainText("No se ha podido cargar la lista de cartas");
         await expect(page.locator("#deck-collection")).toBeHidden();
+    });
+});
+
+test.describe("rules on the cards", () => {
+    test("forbidding a card lets go of its locks, and locking one lifts the ban", async ({ page }) => {
+        await chooseFile(page);
+        // Slots 0, 12 and 24 hold the same card.
+        await tiles(page).nth(0).click();
+        await tiles(page).nth(WEAK.length).click();
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length + 2));
+
+        await forbids(page).nth(24).click();
+
+        for (const slot of [0, WEAK.length, WEAK.length * 2]) {
+            await expect(tiles(page).nth(slot)).toHaveAttribute("aria-pressed", "false");
+            await expect(tiles(page).nth(slot)).toHaveAttribute("data-forbidden", "true");
+            await expect(forbids(page).nth(slot)).toHaveAttribute("aria-pressed", "true");
+        }
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length, 0, 1));
+
+        await tiles(page).nth(WEAK.length).click();
+
+        await expect(tiles(page).nth(WEAK.length)).toHaveAttribute("aria-pressed", "true");
+        for (const slot of [0, WEAK.length, WEAK.length * 2]) {
+            await expect(forbids(page).nth(slot)).toHaveAttribute("aria-pressed", "false");
+            await expect(tiles(page).nth(slot)).toHaveAttribute("data-forbidden", "false");
+        }
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length + 1, 0, 0));
+    });
+
+    test("forbidding a spare card shows it on its row and counts it, and a ban is lifted from there", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await page.locator("#deck-trunk-summary").click();
+
+        await rowButton(page, LUSTER, "forbid").click();
+
+        await expect(rowButton(page, LUSTER, "forbid")).toHaveAttribute("aria-pressed", "true");
+        await expect(rows(page).nth(LUSTER).getByText("Prohibida", { exact: true })).toBeVisible();
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length, 0, 1));
+
+        await rowButton(page, LUSTER, "forbid").click();
+        await expect(rowButton(page, LUSTER, "forbid")).toHaveAttribute("aria-pressed", "false");
+        await expect(rows(page).nth(LUSTER).getByText("Prohibida", { exact: true })).toBeHidden();
+    });
+
+    test("adding a copy of a card the deck holds locks the copy in the deck", async ({ page }) => {
+        await mockOptimizer(page);
+        await chooseFile(page, holdingSave());
+        await page.locator("#deck-trunk-summary").click();
+        await expect(tiles(page).nth(HOLDING_SLOT)).toHaveAttribute("aria-pressed", "false");
+
+        await rowButton(page, WHITE, "add").click();
+
+        await expect(tiles(page).nth(HOLDING_SLOT)).toHaveAttribute("aria-pressed", "true");
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length + 1, 1, 0));
+        await expect(rows(page).nth(WHITE)).toContainText("×2");
+        await expect(addedTiles(page)).toHaveCount(1);
+
+        const requestSent = page.waitForRequest("**/api/deck/optimize");
+        await compute(page).click();
+        // One copy in the deck stays, and one more must come in.
+        expect(bodyOf(await requestSent).locked).toContainEqual({ id: 1, count: 2 });
+    });
+
+    test("an added copy stops at the copy limit, and removing it keeps the deck copy locked", async ({
+        page,
+    }) => {
+        await chooseFile(page, holdingSave());
+        await page.locator("#deck-trunk-summary").click();
+
+        await rowButton(page, WHITE, "add").click();
+        await rowButton(page, WHITE, "add").click();
+        // One copy in the deck and two added make the three the deck may hold.
+        await expect(rowButton(page, WHITE, "add")).toBeDisabled();
+        await expect(rows(page).nth(WHITE)).toContainText("×1");
+
+        await rowButton(page, WHITE, "remove").click();
+        await expect(rowButton(page, WHITE, "add")).toBeEnabled();
+        await expect(addedTiles(page)).toHaveCount(1);
+        await rowButton(page, WHITE, "remove").click();
+        await expect(rowButton(page, WHITE, "remove")).toBeHidden();
+        await expect(page.locator("#deck-added")).toBeHidden();
+        await expect(tiles(page).nth(HOLDING_SLOT)).toHaveAttribute("aria-pressed", "true");
+    });
+
+    test("unlocking the deck copy of a card with added copies drops them", async ({ page }) => {
+        await chooseFile(page, holdingSave());
+        await page.locator("#deck-trunk-summary").click();
+        await rowButton(page, WHITE, "add").click();
+        await expect(addedTiles(page)).toHaveCount(1);
+
+        await tiles(page).nth(HOLDING_SLOT).click();
+
+        await expect(addedTiles(page)).toHaveCount(0);
+        await expect(rows(page).nth(WHITE)).toContainText("×3");
+    });
+
+    test("adding stops when the cards that must stay would fill the deck", async ({ page }) => {
+        await chooseFile(page);
+        await page.locator("#deck-trunk-summary").click();
+        for (let slot = 0; slot < FIRST_SPELL; slot++) await tiles(page).nth(slot).click();
+        // 40 locked cards leave no room for another.
+        await expect(rowButton(page, ULTIMATE, "add")).toBeDisabled();
+        await tiles(page).nth(0).click();
+        await expect(rowButton(page, ULTIMATE, "add")).toBeEnabled();
+        await rowButton(page, ULTIMATE, "add").click();
+        await expect(rowButton(page, LUSTER, "add")).toBeDisabled();
+    });
+
+    test("an added tile shows its mark, says the calculation chooses what leaves, and removes the copy", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await page.locator("#deck-trunk-summary").click();
+        await rowButton(page, LUSTER, "add").click();
+
+        await expect(page.locator("#deck-added")).toBeVisible();
+        await expect(page.locator("#deck-added")).toContainText("Entran al mazo");
+        await expect(page.locator("#deck-added")).toContainText(
+            "El cálculo elige qué cartas salen para hacerles sitio."
+        );
+        await expect(addedTiles(page).first()).toHaveAccessibleName(/Black Luster Soldier, añadida/);
+
+        await addedTiles(page).first().click();
+
+        await expect(page.locator("#deck-added")).toBeHidden();
+        await expect(page.locator("#lock-count")).toHaveText(countLine());
+    });
+
+    test("any rule change discards the shown result", async ({ page }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await page.locator("#deck-trunk-summary").click();
+        const steps = [
+            () => rowButton(page, LUSTER, "add").click(),
+            () => rowButton(page, LUSTER, "remove").click(),
+            () => forbids(page).nth(0).click(),
+            () => rowButton(page, ULTIMATE, "forbid").click(),
+        ];
+        for (const step of steps) {
+            await compute(page).click();
+            await expect(page.locator("#deck-results")).toBeVisible();
+            await step();
+            await expect(page.locator("#deck-results")).toBeHidden();
+            await expect(page.locator("#deck-results-hint")).toBeVisible();
+        }
+    });
+
+    test("choosing another save starts again from the default rules", async ({ page }) => {
+        await page.getByLabel("Archivo de la partida").setInputFiles(twoSavesCard());
+        await page.locator("#deck-trunk-summary").click();
+        await rowButton(page, 0, "forbid").click();
+        await forbids(page).nth(0).click();
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length, 0, 2));
+
+        await page.getByRole("radio", { name: /Partida 2/ }).check();
+
+        await expect(page.locator("#lock-count")).toHaveText(countLine());
+        await expect(addedTiles(page)).toHaveCount(0);
+    });
+
+    test("the marks are real buttons of at least 24 px, beside the tile and clear of the card name", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await page.locator("#deck-trunk-summary").click();
+
+        // Never nested: the forbid button is a sibling of the tile button.
+        await expect(page.locator("#deck-lock-grid li button button")).toHaveCount(0);
+        await expect(page.locator("#deck-lock-grid li").first().locator("> button")).toHaveCount(2);
+        await expect(forbids(page).first()).toHaveAccessibleName(/^Prohibir /);
+        const forbid = (await forbids(page).first().boundingBox())!;
+        const name = (await page.locator("#deck-lock-grid .card-tile-name").first().boundingBox())!;
+        const lockMark = (await page
+            .locator("#deck-lock-grid [data-action='lock'] > span")
+            .first()
+            .boundingBox())!;
+        expect(Math.min(forbid.width, forbid.height)).toBeGreaterThanOrEqual(24);
+        expect(forbid.y).toBeGreaterThanOrEqual(name.y + name.height);
+        expect(lockMark.y).toBeGreaterThanOrEqual(name.y + name.height);
+        expect(forbid.x + forbid.width).toBeLessThanOrEqual(lockMark.x);
+        for (const action of ["add", "forbid"] as const) {
+            const box = (await rowButton(page, ULTIMATE, action).boundingBox())!;
+            expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(24);
+        }
+    });
+
+    test("a forbidden tile is ringed and its artwork dimmed, and its name stays visible", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await forbids(page).nth(0).click();
+
+        const tile = tiles(page).nth(0);
+        await expect(tile).toHaveClass(/ring-wb-red/);
+        await expect(tile.locator(".wb-art").first()).toHaveCSS("opacity", "0.4");
+        await expect(tile.locator(".card-tile-name")).toHaveCSS("opacity", "1");
+        await expect(tile.locator(".card-tile-name")).toBeVisible();
+    });
+});
+
+test.describe("what the result says when the rules lower the average", () => {
+    const lower = {
+        recommended: { averageBestAtk: 1200.2, share1500: 0.3, share2000: 0.1, shareDead: 0.3 },
+    };
+
+    test("it shows a real minus sign and says the rules lower the average", async ({ page }) => {
+        await mockOptimizer(page, answer(lower));
+        await chooseFile(page);
+        await compute(page).click();
+
+        const first = page.locator("#deck-results table tbody tr").first();
+        await expect(first).toContainText("Empeora: −116,1");
+        await expect(first).not.toContainText("Mejora");
+        await expect(page.locator("#deck-results")).toContainText(
+            "Tus reglas bajan el promedio de este mazo."
+        );
+        await expect(page.locator("#deck-status")).toContainText(
+            "Tus reglas bajan el promedio de este mazo."
+        );
+        await expect(
+            page.locator("#deck-result-title").locator("xpath=ancestor::div[contains(@class,'win-bar')]")
+        ).toHaveClass(/win-bar-red/);
+    });
+
+    test("an answer that is better does not say it", async ({ page }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await compute(page).click();
+
+        await expect(page.locator("#deck-results")).toBeVisible();
+        await expect(page.locator("#deck-results")).not.toContainText("bajan el promedio");
     });
 });
 
@@ -411,12 +761,12 @@ test.describe("what the result claims", () => {
         {
             name: "a certified deck is the best possible one",
             body: { certified: true, method: "exhaustive" },
-            text: "Es el mejor mazo posible con tus cartas que conserva las cartas bloqueadas.",
+            text: "Es el mejor mazo posible con tus cartas que respeta tus cartas bloqueadas, añadidas y prohibidas.",
         },
         {
-            name: "a local search that finished says no single swap helps",
+            name: "a local search that finished says no single swap helps, under the rules",
             body: {},
-            text: "Cambiar una sola carta del mazo por cualquiera de las que tienes no lo mejora.",
+            text: "Con tus reglas, cambiar una sola carta del mazo por cualquiera de las que tienes no lo mejora.",
         },
         {
             name: "a truncated search says it is the best found in the time",
@@ -437,6 +787,19 @@ test.describe("what the result claims", () => {
             await expect(page.locator("#deck-results")).toContainText(text);
         });
     }
+
+    test("with no rule a local search says no single swap helps, without mentioning rules", async ({
+        page,
+    }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+        for (let slot = FIRST_SPELL; slot < 40; slot++) await tiles(page).nth(slot).click();
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toContainText(
+            "Cambiar una sola carta del mazo por cualquiera de las que tienes no lo mejora."
+        );
+        await expect(page.locator("#deck-results")).not.toContainText("reglas");
+    });
 
     test("with no card locked a certified deck does not mention locks", async ({ page }) => {
         await mockOptimizer(page, answer({ certified: true, method: "exhaustive" }));
@@ -459,7 +822,7 @@ test.describe("what the result claims", () => {
         await expect(rows.first()).toContainText("1420,9");
         await expect(rows.first()).toContainText("Mejora: +104,6");
         // Fewer dead hands is the better result.
-        await expect(rows.nth(3)).toContainText("Mejora: -7,7 pts");
+        await expect(rows.nth(3)).toContainText("Mejora: −7,7 pts");
     });
 });
 
@@ -493,6 +856,27 @@ test.describe("failures", () => {
         await compute(page).click();
 
         await expect(page.getByRole("alert")).toContainText("El servidor no ha aceptado este mazo");
+    });
+
+    test("rules that leave no deck are explained, with no retry", async ({ page }) => {
+        let calls = 0;
+        await page.route("**/api/deck/optimize", (route) => {
+            calls += 1;
+            return json(route, 400, {
+                error: {
+                    code: "impossible-deck",
+                    message: "No deck of 40 cards obeys these rules",
+                    details: { required: 41, allowed: 60, size: 40 },
+                },
+            });
+        });
+        await chooseFile(page);
+        await compute(page).click();
+
+        await expect(page.getByRole("alert")).toContainText("no se puede armar un mazo de 40 cartas");
+        await expect(page.getByRole("alert")).toContainText("Cambia alguna");
+        await expect(page.getByRole("button", { name: /Reintentar/ })).toHaveCount(0);
+        expect(calls).toBe(1);
     });
 
     test("a server error can be retried", async ({ page }) => {
@@ -574,6 +958,90 @@ test.describe("layout and keyboard", () => {
         await compute(page).focus();
         await page.keyboard.press("Enter");
         await expect(page.getByRole("heading", { name: "Mazo recomendado" }).last()).toBeFocused();
+    });
+
+    test("the tile buttons and the row buttons work from the keyboard and keep the focus", async ({
+        page,
+    }) => {
+        await mockOptimizer(page);
+        await chooseFile(page, holdingSave());
+        await page.locator("#deck-trunk-summary").click();
+
+        const forbid = forbids(page).nth(0);
+        await forbid.focus();
+        await page.keyboard.press("Space");
+        await expect(forbid).toHaveAttribute("aria-pressed", "true");
+        await expect(forbid).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(forbid).toHaveAttribute("aria-pressed", "false");
+        await expect(forbid).toBeFocused();
+
+        const add = rowButton(page, WHITE, "add");
+        await add.focus();
+        await page.keyboard.press("Enter");
+        await expect(addedTiles(page)).toHaveCount(1);
+        await expect(add).toBeFocused();
+        // The second copy fills the limit: the button turns off, so the focus moves to Quitar.
+        await page.keyboard.press("Space");
+        await expect(add).toBeDisabled();
+        await expect(rowButton(page, WHITE, "remove")).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(rowButton(page, WHITE, "remove")).toBeFocused();
+        await page.keyboard.press("Space");
+        // The last copy is gone: Quitar hides, so the focus moves to Añadir.
+        await expect(rowButton(page, WHITE, "remove")).toBeHidden();
+        await expect(add).toBeFocused();
+
+        const forbidRow = rowButton(page, LUSTER, "forbid");
+        await forbidRow.focus();
+        await page.keyboard.press("Space");
+        await expect(forbidRow).toHaveAttribute("aria-pressed", "true");
+        await expect(forbidRow).toBeFocused();
+    });
+
+    test("removing an added tile moves the focus to the next one, then to the spare cards", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        const summary = page.locator("#deck-trunk-summary");
+        await summary.click();
+        await rowButton(page, ULTIMATE, "add").click();
+        await rowButton(page, LUSTER, "add").click();
+        await rowButton(page, WHITE, "add").click();
+        await expect(addedTiles(page)).toHaveCount(3);
+
+        await addedTiles(page).nth(0).focus();
+        await page.keyboard.press("Enter");
+        await expect(addedTiles(page)).toHaveCount(2);
+        await expect(addedTiles(page).nth(0)).toBeFocused();
+        await page.keyboard.press("Space");
+        await expect(addedTiles(page)).toHaveCount(1);
+        await expect(addedTiles(page).nth(0)).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(page.locator("#deck-added")).toBeHidden();
+        await expect(summary).toBeFocused();
+    });
+
+    test("the rules do not scroll the page sideways at 375 px, with results shown", async ({ page }) => {
+        await page.setViewportSize({ width: 375, height: 800 });
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await page.locator("#deck-trunk-summary").click();
+        for (const row of [ULTIMATE, LUSTER, WHITE]) await rowButton(page, row, "add").click();
+        await rowButton(page, WHITE, "forbid").click();
+        await forbids(page).nth(0).click();
+        await expect(addedTiles(page)).toHaveCount(2);
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toBeVisible();
+
+        const overflow = await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+        );
+        expect(overflow).toBeLessThanOrEqual(0);
+        // The buttons of a row wrap under its name.
+        const name = (await rows(page).nth(ULTIMATE).locator("span").first().boundingBox())!;
+        const button = (await rowButton(page, ULTIMATE, "add").boundingBox())!;
+        expect(button.y).toBeGreaterThanOrEqual(name.y + name.height);
     });
 
     test("the navbar links the page and marks it as the current one", async ({ page }) => {

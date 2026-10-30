@@ -48,6 +48,11 @@
                         </div>
                         <p id="lock-hint" class="m-0 mb-3 text-sm text-wb-mute"><%= t('deck.lock.hint') %></p>
                         <div id="deck-lock-grid" aria-describedby="lock-hint"></div>
+                        <div id="deck-added" hidden class="mt-4">
+                            <h4 id="deck-added-title" class="m-0 mb-1 text-base font-bold"><%= t('deck.added.title') %></h4>
+                            <p id="deck-added-hint" class="m-0 mb-3 text-sm text-wb-mute"><%= t('deck.added.hint') %></p>
+                            <ul id="deck-added-list" aria-labelledby="deck-added-title" aria-describedby="deck-added-hint" class="m-0 p-0 list-none grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-x-2.5 gap-y-3 justify-items-center"></ul>
+                        </div>
                     </div>
                     <details id="deck-trunk" class="mb-4">
                         <summary id="deck-trunk-summary" class="min-h-11 py-2 font-bold cursor-pointer"></summary>

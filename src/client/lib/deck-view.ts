@@ -1,5 +1,6 @@
-// Logic of the best-deck page that needs no DOM: reading a chosen file, what the request carries, which claim
-// the answer lets the page make, the rows of the stats table and how a failed request is told apart.
+// Logic of the best-deck page that needs no DOM: reading a chosen file, the rules the player sets, what the
+// request carries, which claim the answer lets the page make, the rows of the stats table and how a failed
+// request is told apart.
 
 import type {
     CardIndexEntry,
@@ -8,6 +9,7 @@ import type {
     DeckOptimizeResponse,
     DeckStats,
 } from "../../shared/types.js";
+import { copyLimit } from "../../shared/limits.js";
 import { ApiError } from "./api.js";
 import { MAX_SAVE_FILE_BYTES, parseFmSaves, type FmSave, type ParseSavesResult } from "./fm-save.js";
 
@@ -73,6 +75,121 @@ export function markLockedSlots(deck: readonly { id: number }[], locked: readonl
     });
 }
 
+// Which slots of the recommended deck are the added copies: the copies that come after the locked ones of the
+// same card, since adding a copy locks every copy the deck already holds.
+export function markAddedSlots(
+    deck: readonly { id: number }[],
+    locked: readonly DeckLock[],
+    added: readonly DeckLock[]
+): boolean[] {
+    const skip = new Map(locked.map(({ id, count }) => [id, count]));
+    const left = new Map(added.map(({ id, count }) => [id, count]));
+    return deck.map(({ id }) => {
+        const toSkip = skip.get(id) ?? 0;
+        if (toSkip > 0) {
+            skip.set(id, toSkip - 1);
+            return false;
+        }
+        const remaining = left.get(id) ?? 0;
+        if (remaining === 0) return false;
+        left.set(id, remaining - 1);
+        return true;
+    });
+}
+
+// What the player asked for. A rule never lives next to one it contradicts: the transitions below keep them
+// apart, the newest rule winning.
+export interface DeckRules {
+    // The lock of each slot of the deck.
+    locked: readonly boolean[];
+    // Copies taken from the trunk, per card.
+    added: ReadonlyMap<number, number>;
+    // Cards that may not be in the answer, whether the deck holds them or not.
+    forbidden: readonly number[];
+}
+
+export function defaultRules(deck: readonly number[], cards: CardLookup): DeckRules {
+    return { locked: defaultLocks(deck, cards), added: new Map(), forbidden: [] };
+}
+
+function without(added: ReadonlyMap<number, number>, id: number): ReadonlyMap<number, number> {
+    const next = new Map(added);
+    next.delete(id);
+    return next;
+}
+
+// Locking a copy of a forbidden card lifts the ban; unlocking one drops the copies added to that card, since
+// those only meant something while every copy of the deck stayed.
+export function toggleLock(rules: DeckRules, deck: readonly number[], slot: number): DeckRules {
+    const id = deck[slot];
+    if (id === undefined) return rules;
+    const locked = [...rules.locked];
+    locked[slot] = !rules.locked[slot];
+    if (locked[slot]) return { ...rules, locked, forbidden: rules.forbidden.filter((card) => card !== id) };
+    return { ...rules, locked, added: without(rules.added, id) };
+}
+
+// Forbidding a card lets go of every lock and added copy it had. Lifting the ban changes nothing else.
+export function toggleForbid(rules: DeckRules, deck: readonly number[], id: number): DeckRules {
+    if (rules.forbidden.includes(id))
+        return { ...rules, forbidden: rules.forbidden.filter((c) => c !== id) };
+    return {
+        locked: rules.locked.map((isLocked, slot) => (deck[slot] === id ? false : isLocked)),
+        added: without(rules.added, id),
+        forbidden: [...rules.forbidden, id],
+    };
+}
+
+function copiesIn(deck: readonly number[], id: number): number {
+    return deck.filter((card) => card === id).length;
+}
+
+function addedTotal(rules: DeckRules): number {
+    let total = 0;
+    for (const count of rules.added.values()) total += count;
+    return total;
+}
+
+// Another copy fits when the card has a spare one under its copy limit, and when the cards the answer must
+// hold, counting this one, still fit in the deck.
+export function canAdd(rules: DeckRules, save: FmSave, id: number): boolean {
+    const inDeck = copiesIn(save.deck, id);
+    const owned = inDeck + (save.trunk.find((entry) => entry.id === id)?.count ?? 0);
+    if ((rules.added.get(id) ?? 0) >= copyLimit(owned, inDeck) - inDeck) return false;
+    const lockedNow = rules.locked.filter(Boolean).length;
+    // Adding locks the copies of this card that the deck holds and has not locked yet.
+    const toLock = save.deck.filter((card, slot) => card === id && !rules.locked[slot]).length;
+    return lockedNow + addedTotal(rules) + toLock + 1 <= save.deck.length;
+}
+
+export function addCopy(rules: DeckRules, save: FmSave, id: number): DeckRules {
+    if (!canAdd(rules, save, id)) return rules;
+    return {
+        locked: rules.locked.map((isLocked, slot) => save.deck[slot] === id || isLocked),
+        added: new Map(rules.added).set(id, (rules.added.get(id) ?? 0) + 1),
+        forbidden: rules.forbidden.filter((card) => card !== id),
+    };
+}
+
+// The deck copies that adding locked stay locked, so the player sees them and can let them go.
+export function removeCopy(rules: DeckRules, id: number): DeckRules {
+    const count = rules.added.get(id) ?? 0;
+    if (count === 0) return rules;
+    if (count === 1) return { ...rules, added: without(rules.added, id) };
+    return { ...rules, added: new Map(rules.added).set(id, count - 1) };
+}
+
+export function addedCards(rules: DeckRules): DeckLock[] {
+    return [...rules.added].map(([id, count]) => ({ id, count }));
+}
+
+// The copies the answer must hold: the locked slots of the deck, and on top of them the copies added.
+export function requiredCards(deck: readonly number[], rules: DeckRules): DeckLock[] {
+    const counts = new Map(lockedCards(deck, rules.locked).map(({ id, count }) => [id, count]));
+    for (const [id, count] of rules.added) counts.set(id, (counts.get(id) ?? 0) + count);
+    return [...counts].map(([id, count]) => ({ id, count }));
+}
+
 export interface SpareRow {
     card: CardIndexEntry;
     count: number;
@@ -94,18 +211,19 @@ export function spareRows(save: FmSave, cards: CardLookup): SpareRow[] {
 }
 
 // The request is built field by field, so nothing else of the save (and never the player name) can leak into
-// what is sent: only card ids and counts. The page locks cards one by one, so it never asks to keep every
+// what is sent: only card ids and counts. The page sets the rules card by card, so it never asks to keep every
 // non-monster as a group.
-export function buildDeckRequest(save: FmSave, locked: readonly DeckLock[]): DeckOptimizeRequest {
+export function buildDeckRequest(save: FmSave, rules: DeckRules): DeckOptimizeRequest {
     return {
         deck: [...save.deck],
         trunk: save.trunk.map(({ id, count }) => ({ id, count })),
         keepNonMonsters: false,
-        locked: locked.map(({ id, count }) => ({ id, count })),
+        locked: requiredCards(save.deck, rules),
+        forbidden: [...rules.forbidden],
     };
 }
 
-export type VerdictClaim = "certified" | "certified-locked" | "local" | "truncated";
+export type VerdictClaim = "certified" | "certified-rules" | "local" | "local-rules" | "truncated";
 
 export interface Verdict {
     claim: VerdictClaim;
@@ -114,15 +232,16 @@ export interface Verdict {
 }
 
 // What the page may say about the recommended deck. The weakest claim the answer allows wins: a search that
-// ran out of time says so even when the answer also carries the flag of a certified deck.
+// ran out of time says so even when the answer also carries the flag of a certified deck. With any rule the
+// claim is about the decks that obey them, not about every deck.
 export function verdictOf(
     answer: Pick<DeckOptimizeResponse, "certified" | "truncated" | "swaps">,
-    hasLocks: boolean
+    hasRules: boolean
 ): Verdict {
     const noSwaps = answer.swaps.length === 0;
     if (answer.truncated) return { claim: "truncated", noSwaps };
-    if (answer.certified) return { claim: hasLocks ? "certified-locked" : "certified", noSwaps };
-    return { claim: "local", noSwaps };
+    if (answer.certified) return { claim: hasRules ? "certified-rules" : "certified", noSwaps };
+    return { claim: hasRules ? "local-rules" : "local", noSwaps };
 }
 
 export type StatKey = "averageBestAtk" | "share1500" | "share2000" | "shareDead";
@@ -166,16 +285,24 @@ export function statRows(current: DeckStats, recommended: DeckStats): StatRow[] 
     });
 }
 
-// A number as the player reads it in their language: one decimal, with the sign when `signed`.
+// True when the player's rules left the recommended deck with a lower average than the deck they have.
+export function lowersAverage(current: DeckStats, recommended: DeckStats): boolean {
+    return statRows(current, recommended)[0]?.direction === "worse";
+}
+
+// A number as the player reads it in their language: one decimal, with the sign when `signed`. A negative
+// number gets the real minus sign, which a screen reader says as "minus" and a hyphen is not.
 export function formatNumber(value: number, locale: string, signed = false): string {
     return new Intl.NumberFormat(locale, {
         minimumFractionDigits: SHOWN_DECIMALS,
         maximumFractionDigits: SHOWN_DECIMALS,
         signDisplay: signed ? "exceptZero" : "auto",
-    }).format(value);
+    })
+        .format(value)
+        .replace("-", "\u2212");
 }
 
-export type DeckFailureKind = "rejected" | "busy" | "failed";
+export type DeckFailureKind = "rejected" | "impossible" | "busy" | "failed";
 
 export interface DeckFailure {
     kind: DeckFailureKind;
@@ -194,13 +321,15 @@ export function parseRetryAfter(header: string | undefined): number {
     return Math.min(Math.max(Number(header), 1), MAX_RETRY_SECONDS);
 }
 
-// A 400 or 413 means the server looked at the deck and refused it; 503 "busy" asks to wait; anything else,
-// including a connection that never answered, is a failure worth trying again.
+// A 400 or 413 means the server looked at the deck and refused it, and "impossible-deck" says the rules are
+// the reason, so asking again cannot help; 503 "busy" asks to wait; anything else, including a connection
+// that never answered, is a failure worth trying again.
 export function classifyDeckFailure(error: unknown): DeckFailure {
     if (error instanceof ApiError) {
         if (error.status === 503 && error.code === "busy") {
             return { kind: "busy", retryAfter: parseRetryAfter(error.retryAfter) };
         }
+        if (error.status === 400 && error.code === "impossible-deck") return { kind: "impossible" };
         if (error.status === 400 || error.status === 413) return { kind: "rejected" };
     }
     return { kind: "failed" };

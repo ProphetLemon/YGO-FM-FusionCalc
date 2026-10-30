@@ -1,14 +1,26 @@
 import type { CardSummary, DeckFinal, DeckLock, DeckOptimizeResponse } from "../../shared/types.js";
-import { formatNumber, markLockedSlots, statRows, verdictOf, type StatRow } from "../lib/deck-view.js";
+import {
+    formatNumber,
+    lowersAverage,
+    markAddedSlots,
+    markLockedSlots,
+    statRows,
+    verdictOf,
+    type StatRow,
+} from "../lib/deck-view.js";
 import { getLang, t } from "../lib/i18n.js";
 import { createCardTile } from "./card-tile.js";
-import { createLockIcon } from "./lock-icon.js";
+import { createLockIcon, createPlusIcon } from "./lock-icon.js";
 
 export interface DeckResultsContext {
     // The ids of the deck that was sent, in the slots the answer's deck uses, to mark the cards that are new.
     currentDeck: readonly number[];
     // The cards the request asked to keep, to mark them in the recommended deck.
     locked: readonly DeckLock[];
+    // The copies the player added from the trunk, marked after the locked copies of the same card.
+    added: readonly DeckLock[];
+    // Whether the request carried any rule, which changes what the verdict may claim.
+    hasRules: boolean;
 }
 
 export interface DeckResults {
@@ -62,14 +74,17 @@ function srOnly(text: string): HTMLElement {
 }
 
 function renderVerdict(answer: DeckOptimizeResponse, context: DeckResultsContext): DeckResults {
+    // The player's rules can leave a deck that scores below the one they have: the bar is not green then.
+    const loses = lowersAverage(answer.current, answer.recommended);
     const { section, body, heading } = panel(
-        answer.swaps.length > 0 ? "win-bar-green" : "win-bar-grey",
+        loses ? "win-bar-red" : answer.swaps.length > 0 ? "win-bar-green" : "win-bar-grey",
         t("deck.results.title"),
         "deck-result-title"
     );
     heading.tabIndex = -1;
-    const verdict = verdictOf(answer, context.locked.length > 0);
+    const verdict = verdictOf(answer, context.hasRules);
     body.appendChild(el("p", "m-0 font-bold", t(`deck.verdict.${verdict.claim}`)));
+    if (loses) body.appendChild(el("p", "m-0 mt-2 font-bold text-wb-red", t("deck.verdict.loss")));
     if (verdict.noSwaps) {
         const key = verdict.claim.startsWith("certified")
             ? "deck.verdict.no-swaps-certified"
@@ -232,6 +247,7 @@ function renderDeck(answer: DeckOptimizeResponse, context: DeckResultsContext): 
         "m-0 p-0 list-none grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-x-2.5 gap-y-3 justify-items-center"
     );
     const lockedSlots = markLockedSlots(answer.deck, context.locked);
+    const addedSlots = markAddedSlots(answer.deck, context.locked, context.added);
     answer.deck.forEach((card, slot) => {
         const isNew = context.currentDeck[slot] !== card.id;
         const item = el("li", "flex flex-col items-center gap-1");
@@ -245,11 +261,23 @@ function renderDeck(answer: DeckOptimizeResponse, context: DeckResultsContext): 
             badge.append(createLockIcon(true), t("deck.grid.locked"));
             item.appendChild(badge);
         }
+        if (addedSlots[slot]) {
+            item.dataset.added = "true";
+            const badge = el(
+                "span",
+                "inline-flex items-center gap-1 px-1.5 text-sm font-bold text-white bg-wb-green"
+            );
+            badge.append(createPlusIcon(), t("deck.grid.added"));
+            item.appendChild(badge);
+        }
         if (isNew) {
             item.dataset.new = "true";
-            item.appendChild(
-                el("span", "px-1.5 text-sm font-bold text-white bg-wb-green", t("deck.grid.new"))
-            );
+            // An added copy is new by definition: its own badge says so, and the plain one would repeat it.
+            if (!addedSlots[slot]) {
+                item.appendChild(
+                    el("span", "px-1.5 text-sm font-bold text-white bg-wb-green", t("deck.grid.new"))
+                );
+            }
         }
         list.appendChild(item);
     });
