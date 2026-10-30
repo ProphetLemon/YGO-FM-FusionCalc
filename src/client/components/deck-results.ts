@@ -21,6 +21,8 @@ export interface DeckResultsContext {
     added: readonly DeckLock[];
     // Whether the request carried any rule, which changes what the verdict may claim.
     hasRules: boolean;
+    // Whether the request carried copies the player added by hand, which the answer counts as owned cards.
+    withManualCards: boolean;
 }
 
 export interface DeckResults {
@@ -84,6 +86,8 @@ function renderVerdict(answer: DeckOptimizeResponse, context: DeckResultsContext
     heading.tabIndex = -1;
     const verdict = verdictOf(answer, context.hasRules);
     body.appendChild(el("p", "m-0 font-bold", t(`deck.verdict.${verdict.claim}`)));
+    // "With your cards" would otherwise overstate what the save holds.
+    if (context.withManualCards) body.appendChild(el("p", "m-0 mt-2", t("deck.results.manual")));
     if (loses) body.appendChild(el("p", "m-0 mt-2 font-bold text-wb-red", t("deck.verdict.loss")));
     if (verdict.noSwaps) {
         const key = verdict.claim.startsWith("certified")

@@ -120,6 +120,47 @@ const countLine = (locked = NON_MONSTERS.length, added = 0, forbidden = 0): stri
 // The slot of the first non-monster of DECK.
 const FIRST_SPELL = WEAK.length * 3;
 
+// Cards added by hand. Dark Magician is in neither the deck nor the trunk of the saves above; Blue-eyes White
+// Dragon is in the trunk three times, which is the most a deck can use.
+const DARK = 35;
+const DARK_NAME = "Dark Magician";
+const WHITE_NAME = "Blue-eyes White Dragon";
+const manualField = (page: Page) => page.locator("#deck-manual-input");
+const manualAdd = (page: Page) => page.locator("#deck-manual-add");
+const manualMsg = (page: Page) => page.locator("#deck-manual-msg");
+const rowOf = (page: Page, name: string) => rows(page).filter({ hasText: name });
+const rowAction = (page: Page, name: string, action: "add" | "remove" | "forbid" | "delete") =>
+    rowOf(page, name).locator(`button[data-action="${action}"]`);
+const openTrunk = (page: Page) => page.locator("#deck-trunk-summary").click();
+const option = (page: Page, name: string) =>
+    page.locator("#deck-manual").getByRole("option", { name, exact: true });
+
+// Types a name in the field and presses the button.
+async function addByHand(page: Page, name: string): Promise<void> {
+    await manualField(page).fill(name);
+    await manualAdd(page).click();
+}
+
+// A save with nothing in the trunk.
+function emptyTrunkSave(): { name: string; mimeType: string; buffer: Buffer } {
+    return {
+        name: "empty.sav",
+        mimeType: "application/octet-stream",
+        buffer: Buffer.from(makeBlock(DECK, {})),
+    };
+}
+
+// Computes with the real optimiser and gives the status the server answered with, with what was sent.
+async function computeStatus(page: Page): Promise<{ status: number; body: Record<string, unknown> }> {
+    const requestSent = page.waitForRequest("**/api/deck/optimize");
+    const responded = page.waitForResponse("**/api/deck/optimize");
+    await compute(page).click();
+    const body = bodyOf(await requestSent);
+    const status = (await responded).status();
+    await expect(page.locator("#deck-results")).toBeVisible({ timeout: 15_000 });
+    return { status, body };
+}
+
 function bodyOf(request: { postDataJSON(): unknown }): Record<string, unknown> {
     return request.postDataJSON() as Record<string, unknown>;
 }
@@ -294,6 +335,66 @@ test.describe("with the real optimiser", () => {
         expect(swaps).toBe(3);
         await expect(page.locator("#deck-results li[data-added='true']")).toHaveCount(3);
     });
+
+    test("a card added by hand can enter the deck through Añadir and appears in the result", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await openTrunk(page);
+        await addByHand(page, DARK_NAME);
+        await rowAction(page, DARK_NAME, "add").click();
+
+        const { status, body } = await computeStatus(page);
+
+        expect(status).toBe(200);
+        expect(body.trunk).toContainEqual({ id: DARK, count: 1 });
+        expect(body.locked).toContainEqual({ id: DARK, count: 1 });
+        await expect(page.locator("#deck-results li[data-added='true']")).toHaveCount(1);
+        await expect(page.locator("#deck-results")).toContainText("cuenta las cartas que agregaste a mano");
+    });
+
+    test("deleting a hand-added copy that was added to the deck never makes the server refuse the rules", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await openTrunk(page);
+        await addByHand(page, DARK_NAME);
+        await addByHand(page, DARK_NAME);
+        await rowAction(page, DARK_NAME, "add").click();
+        await rowAction(page, DARK_NAME, "add").click();
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length, 2, 0));
+
+        await rowAction(page, DARK_NAME, "delete").click();
+        // One copy is left to give: the page cut the added copies to it.
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length, 1, 0));
+        const one = await computeStatus(page);
+        expect(one.status).toBe(200);
+        expect(one.body.trunk).toContainEqual({ id: DARK, count: 1 });
+        expect(one.body.locked).toContainEqual({ id: DARK, count: 1 });
+
+        await rowAction(page, DARK_NAME, "delete").click();
+        await expect(rowOf(page, DARK_NAME)).toHaveCount(0);
+        const none = await computeStatus(page);
+        expect(none.status).toBe(200);
+        expect(JSON.stringify(none.body)).not.toContain(`"id":${DARK}`);
+    });
+
+    test("deleting the last hand-added copy of a forbidden card lifts the ban the server would refuse", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await openTrunk(page);
+        await addByHand(page, DARK_NAME);
+        await rowAction(page, DARK_NAME, "forbid").click();
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length, 0, 1));
+
+        await rowAction(page, DARK_NAME, "delete").click();
+
+        await expect(page.locator("#lock-count")).toHaveText(countLine());
+        const { status, body } = await computeStatus(page);
+        expect(status).toBe(200);
+        expect(body.forbidden).toEqual([]);
+    });
 });
 
 test.describe("the deck and the spare cards before computing", () => {
@@ -317,7 +418,7 @@ test.describe("the deck and the spare cards before computing", () => {
 
         const summary = page.locator("#deck-trunk-summary");
         await expect(summary).toHaveText(
-            "Cartas disponibles (7): aquí puedes añadirlas al mazo o prohibirlas"
+            "Cartas disponibles (7): añádelas al mazo, prohíbelas o agrega otras"
         );
         await expect(rows(page).first()).toBeHidden();
         await summary.click();
@@ -658,6 +759,441 @@ test.describe("rules on the cards", () => {
         await expect(tile.locator(".wb-art").first()).toHaveCSS("opacity", "0.4");
         await expect(tile.locator(".card-tile-name")).toHaveCSS("opacity", "1");
         await expect(tile.locator(".card-tile-name")).toBeVisible();
+    });
+});
+
+test.describe("cards added by hand", () => {
+    test("choosing a suggestion adds a copy at once, sends it as a trunk copy and keeps the focus in the field", async ({
+        page,
+    }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await openTrunk(page);
+        await expect(page.locator("#deck-trunk-summary")).toContainText("(7)");
+
+        await manualField(page).click();
+        await page.keyboard.type("dark magi");
+        await option(page, DARK_NAME).click();
+
+        await expect(manualMsg(page)).toBeVisible();
+        await expect(manualMsg(page)).toHaveText("Agregada: Dark Magician.");
+        await expect(manualField(page)).toHaveValue("");
+        await expect(manualField(page)).toBeFocused();
+        await expect(rows(page)).toHaveCount(4);
+        await expect(page.locator("#deck-trunk-summary")).toContainText("(8)");
+        await expect(page.locator("#spare-count")).toHaveText("8");
+        await expect(page.locator("#spare-kinds")).toHaveText("4");
+
+        const requestSent = page.waitForRequest("**/api/deck/optimize");
+        await compute(page).click();
+        const body = bodyOf(await requestSent);
+        expect(body.trunk).toEqual([
+            { id: 1, count: 3 },
+            { id: 364, count: 3 },
+            { id: 380, count: 1 },
+            { id: DARK, count: 1 },
+        ]);
+        expect(Object.keys(body).sort()).toEqual([
+            "deck",
+            "forbidden",
+            "keepNonMonsters",
+            "locked",
+            "trunk",
+        ]);
+    });
+
+    test("the button adds an exact name, ignoring case and the spaces around it", async ({ page }) => {
+        await chooseFile(page);
+        await openTrunk(page);
+
+        await addByHand(page, "  dark MAGICIAN  ");
+
+        await expect(rowOf(page, DARK_NAME)).toContainText("×1");
+        await expect(manualMsg(page)).toHaveText("Agregada: Dark Magician.");
+        await expect(manualField(page)).toHaveValue("");
+        await expect(manualField(page)).toBeFocused();
+    });
+
+    test("a name that is not a card, or only part of one, shows a message and adds nothing", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await openTrunk(page);
+
+        await addByHand(page, "Dark Magi");
+
+        const unknown = "No hay ninguna carta con ese nombre. Elige una de la lista.";
+        await expect(manualMsg(page)).toHaveText(unknown);
+        await expect(rows(page)).toHaveCount(3);
+        await expect(page.locator("#spare-count")).toHaveText("7");
+        // The text stays, to be completed.
+        await expect(manualField(page)).toHaveValue("Dark Magi");
+
+        await manualField(page).fill("");
+        await manualAdd(page).click();
+        await expect(manualMsg(page)).toHaveText(unknown);
+        await expect(rows(page)).toHaveCount(3);
+    });
+
+    test("a card the player holds three of is refused at once, and a fourth hand add is too", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await openTrunk(page);
+
+        await addByHand(page, WHITE_NAME);
+        await expect(manualMsg(page)).toHaveText(
+            "Ya tienes 3 copias de Blue-eyes White Dragon: más no cambiarían el resultado."
+        );
+        await expect(rowOf(page, WHITE_NAME)).toContainText("×3");
+        await expect(rowOf(page, WHITE_NAME).locator("[data-mark='manual']")).toHaveCount(0);
+
+        for (let copy = 0; copy < 3; copy++) await addByHand(page, DARK_NAME);
+        await expect(rowOf(page, DARK_NAME)).toContainText("×3");
+        await addByHand(page, DARK_NAME);
+        await expect(manualMsg(page)).toHaveText(
+            "Ya tienes 3 copias de Dark Magician: más no cambiarían el resultado."
+        );
+        await expect(rowOf(page, DARK_NAME)).toContainText("×3");
+    });
+
+    test("the cap counts the copies the deck holds", async ({ page }) => {
+        await chooseFile(page, holdingSave());
+        await openTrunk(page);
+
+        // One copy in the deck and three in the trunk.
+        await addByHand(page, WHITE_NAME);
+
+        await expect(manualMsg(page)).toHaveText(
+            "Ya tienes 4 copias de Blue-eyes White Dragon: más no cambiarían el resultado."
+        );
+    });
+
+    test("a row with hand-added copies is marked, counts them and deletes one at a time", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await openTrunk(page);
+        await addByHand(page, DARK_NAME);
+        await addByHand(page, DARK_NAME);
+
+        const row = rowOf(page, DARK_NAME);
+        await expect(row).toContainText("A mano");
+        await expect(row).toContainText("×2");
+        await expect(rowAction(page, DARK_NAME, "delete")).toHaveAccessibleName(
+            "Borrar una copia agregada a mano de Dark Magician"
+        );
+        // The cards of the save have neither the mark nor the button.
+        await expect(rowOf(page, "Black Luster Soldier").locator("[data-mark='manual']")).toHaveCount(0);
+        await expect(rows(page).locator("button[data-action='delete']")).toHaveCount(1);
+
+        await rowAction(page, DARK_NAME, "delete").click();
+        await expect(manualMsg(page)).toHaveText("Borrada una copia de Dark Magician.");
+        await expect(row).toContainText("×1");
+        await expect(page.locator("#spare-count")).toHaveText("8");
+
+        await rowAction(page, DARK_NAME, "delete").click();
+        await expect(row).toHaveCount(0);
+        await expect(page.locator("#spare-count")).toHaveText("7");
+        await expect(page.locator("#spare-kinds")).toHaveText("3");
+    });
+
+    test("a rebuilt list shows the current rules on every row", async ({ page }) => {
+        await chooseFile(page);
+        await openTrunk(page);
+        await rowAction(page, "Black Luster Soldier", "forbid").click();
+        await addByHand(page, DARK_NAME);
+        await rowAction(page, DARK_NAME, "add").click();
+
+        // A second hand add rebuilds the list: the ban, the added copy and the disabled button all remain.
+        await addByHand(page, "Time Wizard");
+
+        const luster = rowOf(page, "Black Luster Soldier");
+        await expect(luster.getByText("Prohibida", { exact: true })).toBeVisible();
+        await expect(rowAction(page, "Black Luster Soldier", "forbid")).toHaveAttribute(
+            "aria-pressed",
+            "true"
+        );
+        await expect(rowOf(page, DARK_NAME)).toContainText("×0");
+        await expect(rowAction(page, DARK_NAME, "remove")).toBeVisible();
+        await expect(rowAction(page, DARK_NAME, "add")).toBeDisabled();
+        await expect(rowAction(page, "Time Wizard", "remove")).toBeHidden();
+        await expect(rowAction(page, "Time Wizard", "add")).toBeEnabled();
+        await expect(rowAction(page, WHITE_NAME, "forbid")).toHaveAttribute("aria-pressed", "false");
+        await expect(page.locator("#lock-count")).toHaveText(countLine(NON_MONSTERS.length, 1, 1));
+    });
+
+    test("an empty trunk shows the field open, and the nothing-to-swap notice follows the hand-added cards", async ({
+        page,
+    }) => {
+        await chooseFile(page, emptyTrunkSave());
+
+        await expect(page.locator("#deck-trunk")).toBeVisible();
+        await expect(page.locator("#deck-trunk")).toHaveAttribute("open", "");
+        await expect(manualField(page)).toBeVisible();
+        await expect(page.locator("#deck-no-spare")).toBeVisible();
+        await expect(rows(page)).toHaveCount(0);
+
+        await addByHand(page, DARK_NAME);
+        await expect(page.locator("#deck-no-spare")).toBeHidden();
+        await expect(rows(page)).toHaveCount(1);
+        await expect(page.locator("#spare-count")).toHaveText("1");
+
+        await rowAction(page, DARK_NAME, "delete").click();
+        await expect(page.locator("#deck-no-spare")).toBeVisible();
+        await expect(page.locator("#spare-count")).toHaveText("0");
+        // The row is gone, so the focus went to the field.
+        await expect(manualField(page)).toBeFocused();
+        await expect(page.locator("#deck-trunk")).toHaveAttribute("open", "");
+    });
+
+    test("a save with a trunk starts folded, with the field inside", async ({ page }) => {
+        await chooseFile(page);
+
+        await expect(page.locator("#deck-trunk")).not.toHaveAttribute("open", "");
+        await expect(manualField(page)).toBeHidden();
+        await openTrunk(page);
+        await expect(manualField(page)).toBeVisible();
+        await expect(page.getByText("Agregar una carta que no está en la partida")).toBeVisible();
+    });
+
+    test("any change to the hand-added cards discards the shown result", async ({ page }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await openTrunk(page);
+
+        for (const step of [
+            () => addByHand(page, DARK_NAME),
+            () => rowAction(page, DARK_NAME, "delete").click(),
+        ]) {
+            await compute(page).click();
+            await expect(page.locator("#deck-results")).toBeVisible();
+            await step();
+            await expect(page.locator("#deck-results")).toBeHidden();
+            await expect(page.locator("#deck-results-hint")).toBeVisible();
+        }
+    });
+
+    test("a refused add keeps the result: nothing changed", async ({ page }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await openTrunk(page);
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toBeVisible();
+
+        await addByHand(page, WHITE_NAME);
+        await addByHand(page, "nothing like a card");
+
+        await expect(page.locator("#deck-results")).toBeVisible();
+    });
+
+    test("choosing another save, or another file, starts without hand-added cards", async ({ page }) => {
+        await mockOptimizer(page);
+        await page.getByLabel("Archivo de la partida").setInputFiles(twoSavesCard());
+        await openTrunk(page);
+        await addByHand(page, DARK_NAME);
+        await expect(page.locator("#spare-count")).toHaveText("8");
+
+        await page.getByRole("radio", { name: /Partida 2/ }).check();
+        await expect(page.locator("#spare-count")).toHaveText("3");
+        await expect(rowOf(page, DARK_NAME)).toHaveCount(0);
+        await expect(manualField(page)).toHaveValue("");
+        await expect(manualMsg(page)).toBeHidden();
+
+        await page.getByRole("radio", { name: /Partida 1/ }).check();
+        await expect(page.locator("#spare-count")).toHaveText("7");
+        await expect(rowOf(page, DARK_NAME)).toHaveCount(0);
+
+        // A new choice folds the list again.
+        await openTrunk(page);
+        await addByHand(page, DARK_NAME);
+        await page.getByLabel("Archivo de la partida").setInputFiles(saveFile("again.sav"));
+        await expect(page.locator("#spare-count")).toHaveText("7");
+        const requestSent = page.waitForRequest("**/api/deck/optimize");
+        await compute(page).click();
+        expect(JSON.stringify(bodyOf(await requestSent).trunk)).not.toContain(`"id":${DARK}`);
+    });
+
+    test("the results say they count the hand-added cards only when those were sent", async ({ page }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await openTrunk(page);
+        const sentence = "Este resultado cuenta las cartas que agregaste a mano.";
+
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toBeVisible();
+        await expect(page.locator("#deck-results")).not.toContainText(sentence);
+
+        await addByHand(page, DARK_NAME);
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toContainText(sentence);
+
+        await rowAction(page, DARK_NAME, "delete").click();
+        await expect(page.locator("#deck-results")).toBeHidden();
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toBeVisible();
+        await expect(page.locator("#deck-results")).not.toContainText(sentence);
+    });
+
+    test("the sentence is true of the answer even if a card is added while it calculates", async ({
+        page,
+    }) => {
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        await page.route("**/api/deck/optimize", async (route) => {
+            await gate;
+            await json(route, 200, answer());
+        });
+        await chooseFile(page);
+        await openTrunk(page);
+
+        await compute(page).click();
+        await expect(page.locator("#deck-loading")).toBeVisible();
+        await addByHand(page, DARK_NAME);
+        release();
+
+        // The calculation was made without the card, and the change dropped it.
+        await expect(page.locator("#deck-results")).toBeHidden();
+        await expect(page.locator("#deck-results-hint")).toBeVisible();
+    });
+
+    test("a card the save lacks can be added by hand and then to the deck, and it is sent locked", async ({
+        page,
+    }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await openTrunk(page);
+        await addByHand(page, DARK_NAME);
+
+        await rowAction(page, DARK_NAME, "add").click();
+        await expect(addedTiles(page)).toHaveCount(1);
+        await expect(rowOf(page, DARK_NAME)).toContainText("×0");
+
+        const requestSent = page.waitForRequest("**/api/deck/optimize");
+        await compute(page).click();
+        const body = bodyOf(await requestSent);
+        expect(body.locked).toContainEqual({ id: DARK, count: 1 });
+        expect(body.trunk).toContainEqual({ id: DARK, count: 1 });
+    });
+
+    test("deleting a copy keeps a ban while the trunk of the save still holds the card", async ({
+        page,
+    }) => {
+        await mockOptimizer(page);
+        await page.getByLabel("Archivo de la partida").setInputFiles(twoSavesCard());
+        await page.getByRole("radio", { name: /Partida 2/ }).check();
+        await openTrunk(page);
+        // The last row is a card of the trunk of the save itself, which the player then also adds by hand.
+        const name = (await rows(page).last().locator("span").first().textContent()) as string;
+        await addByHand(page, name);
+        await rowAction(page, name, "forbid").click();
+        await expect(page.locator("#lock-count")).toHaveText(countLine(4, 0, 1));
+
+        await rowAction(page, name, "delete").click();
+
+        await expect(rowAction(page, name, "forbid")).toHaveAttribute("aria-pressed", "true");
+        await expect(page.locator("#lock-count")).toHaveText(countLine(4, 0, 1));
+        const requestSent = page.waitForRequest("**/api/deck/optimize");
+        await compute(page).click();
+        expect(bodyOf(await requestSent).forbidden).toHaveLength(1);
+    });
+
+    test("the field works from the keyboard, and the delete button keeps the focus", async ({ page }) => {
+        await chooseFile(page);
+        await openTrunk(page);
+        const row = rowOf(page, DARK_NAME);
+
+        await manualField(page).focus();
+        await page.keyboard.type("dark magici");
+        await expect(option(page, DARK_NAME)).toBeVisible();
+        await page.keyboard.press("Enter");
+        await expect(row).toContainText("×1");
+        await expect(manualField(page)).toBeFocused();
+        await expect(manualField(page)).toHaveValue("");
+
+        // With the list closed, Enter adds the name as typed.
+        await page.keyboard.type(DARK_NAME);
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Enter");
+        await expect(row).toContainText("×2");
+        await expect(manualField(page)).toBeFocused();
+
+        const remove = rowAction(page, DARK_NAME, "delete");
+        await remove.focus();
+        await page.keyboard.press("Enter");
+        await expect(row).toContainText("×1");
+        await expect(rowAction(page, DARK_NAME, "delete")).toBeFocused();
+        await page.keyboard.press("Space");
+        await expect(row).toHaveCount(0);
+        await expect(manualField(page)).toBeFocused();
+    });
+
+    test("the suggestions are not clipped by the scroll box of the list", async ({ page }) => {
+        await chooseFile(page);
+        await openTrunk(page);
+
+        await manualField(page).click();
+        await page.keyboard.type("dark");
+        const list = page.locator("#deck-manual [role='listbox']");
+        await expect(list).toBeVisible();
+        expect(await list.locator("[role='option']").count()).toBeGreaterThan(1);
+
+        // The last suggestion is reachable: the topmost element at its centre is the suggestion itself.
+        const last = list.locator("[role='option']").last();
+        await last.scrollIntoViewIfNeeded();
+        const box = (await last.boundingBox())!;
+        const hit = await page.evaluate(
+            ({ x, y }) => document.elementFromPoint(x, y)?.closest("[role='option']")?.textContent ?? null,
+            { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+        );
+        expect(hit).toBe(await last.textContent());
+        // The list is not inside the box that scrolls.
+        expect(await page.locator("#deck-trunk-box [role='listbox']").count()).toBe(0);
+    });
+
+    test("a new row is scrolled into view inside its box", async ({ page }) => {
+        const crowded: Record<number, number> = {};
+        for (let id = 2; id <= 21; id++) crowded[id] = 1;
+        await chooseFile(page, {
+            name: "crowded.sav",
+            mimeType: "application/octet-stream",
+            buffer: Buffer.from(makeBlock(DECK, crowded)),
+        });
+        await openTrunk(page);
+
+        // A spell sorts after every monster: its row starts below the fold of the box.
+        await addByHand(page, "Dark Energy");
+
+        const row = rowOf(page, "Dark Energy").first();
+        await expect(manualMsg(page)).toHaveText("Agregada: Dark Energy.");
+        const boxBounds = (await page.locator("#deck-trunk-box").boundingBox())!;
+        const rowBounds = (await row.boundingBox())!;
+        expect(rowBounds.y).toBeGreaterThanOrEqual(boxBounds.y - 1);
+        expect(rowBounds.y + rowBounds.height).toBeLessThanOrEqual(boxBounds.y + boxBounds.height + 1);
+    });
+
+    test("nothing scrolls the page sideways at 375 px, with hand-added cards and results", async ({
+        page,
+    }) => {
+        await page.setViewportSize({ width: 375, height: 800 });
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await openTrunk(page);
+        await addByHand(page, DARK_NAME);
+        await addByHand(page, DARK_NAME);
+        await addByHand(page, "Dark Magi");
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toBeVisible();
+
+        const overflow = await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+        );
+        expect(overflow).toBeLessThanOrEqual(0);
+        await manualField(page).fill("dark");
+        await expect(page.locator("#deck-manual [role='listbox']")).toBeVisible();
+        const list = (await page.locator("#deck-manual [role='listbox']").boundingBox())!;
+        expect(list.x).toBeGreaterThanOrEqual(0);
+        expect(list.x + list.width).toBeLessThanOrEqual(375);
     });
 });
 

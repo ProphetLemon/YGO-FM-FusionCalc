@@ -1,3 +1,4 @@
+import { Autocomplete } from "../components/autocomplete.js";
 import { mountNavbar } from "../components/navbar.js";
 import { renderDeckResults } from "../components/deck-results.js";
 import {
@@ -9,23 +10,30 @@ import {
 } from "../components/deck-locks.js";
 import { getCardsIndex, optimizeDeck } from "../lib/api.js";
 import {
+    addByHand,
     addCopy,
     addedCards,
     buildDeckRequest,
     canAdd,
+    canAddByHand,
     classifyDeckFailure,
+    copiesOwned,
     defaultRules,
+    findCardByName,
     lockedCards,
     lowersAverage,
     readSaveFile,
     removeCopy,
+    removeManualCopy,
     spareRows,
     summarizeSave,
     toggleForbid,
     toggleLock,
+    withManualCards,
     type CardLookup,
     type DeckFailure,
     type DeckRules,
+    type ManualCards,
 } from "../lib/deck-view.js";
 import { clear, qs } from "../lib/dom.js";
 import { MAX_SAVE_FILE_BYTES, type FmSave } from "../lib/fm-save.js";
@@ -53,7 +61,11 @@ function mountDeckPage(): void {
     const addedList = qs<HTMLElement>("#deck-added-list");
     const trunk = qs<HTMLDetailsElement>("#deck-trunk");
     const trunkSummary = qs<HTMLElement>("#deck-trunk-summary");
+    const trunkBox = qs<HTMLElement>("#deck-trunk-box");
     const trunkList = qs<HTMLElement>("#deck-trunk-list");
+    const manualInput = qs<HTMLInputElement>("#deck-manual-input");
+    const manualAdd = qs<HTMLButtonElement>("#deck-manual-add");
+    const manualMsg = qs<HTMLElement>("#deck-manual-msg");
     const computeBtn = qs<HTMLButtonElement>("#deck-compute");
     const computeMsg = qs<HTMLElement>("#deck-compute-msg");
     const status = qs<HTMLElement>("#deck-status");
@@ -78,7 +90,11 @@ function mountDeckPage(): void {
         !addedList ||
         !trunk ||
         !trunkSummary ||
+        !trunkBox ||
         !trunkList ||
+        !manualInput ||
+        !manualAdd ||
+        !manualMsg ||
         !computeBtn ||
         !computeMsg ||
         !status ||
@@ -94,6 +110,8 @@ function mountDeckPage(): void {
     // The catalog of cards, which names the cards of the save, and the rules set on the chosen save.
     let cards: CardLookup = new Map();
     let rules: DeckRules = { locked: [], added: new Map(), forbidden: [] };
+    // The copies the player added by hand to the chosen save, per card.
+    let manual: ManualCards = new Map();
     let lockGrid: LockGrid | null = null;
     let spareList: SpareList | null = null;
     // The request in flight, if any, and the timer of a "busy" countdown, if one is running.
@@ -138,8 +156,20 @@ function mountDeckPage(): void {
         return box;
     };
 
-    const renderSummary = (): void => {
+    // The chosen save with the copies added by hand: what the player owns, and what everything below reads.
+    const ownedSave = (): FmSave | undefined => {
         const save = saves[selected];
+        return save ? withManualCards(save, manual) : undefined;
+    };
+
+    // The line under the field: what a hand add or delete did, or why it did not. Visible, and read out.
+    const say = (message: string, failed = false): void => {
+        manualMsg.textContent = message;
+        manualMsg.classList.toggle("text-wb-red", failed);
+    };
+
+    const renderSummary = (): void => {
+        const save = ownedSave();
         if (!save) return;
         const summary = summarizeSave(save);
         const locale = getLang();
@@ -182,20 +212,93 @@ function mountDeckPage(): void {
         renderAddedList(addedList, entries, removeAddedAt);
     };
 
-    // Shows the rules everywhere in place, so the focus stays where it is, and drops the answer they outdate.
-    const setRules = (next: DeckRules): void => {
+    // The spare cards, rebuilt from the save and the hand-added copies: rows appear, move and go away with them.
+    // The rows then show the current rules, so a rebuilt row never shows a stale state.
+    const renderSpare = (): void => {
         const save = saves[selected];
-        if (!save) return;
-        rules = next;
+        const owned = ownedSave();
+        if (!save || !owned) return;
+        const rows = spareRows(owned, cards, manual);
+        clear(trunkList);
+        spareList = renderSpareList(trunkList, rows, {
+            onAdd: (id) => setRules(addCopy(rules, ownedSave() ?? owned, id)),
+            onRemove: (id) => setRules(removeCopy(rules, id)),
+            onDeleteManual: (id) => deleteByHand(id),
+            onToggleForbid: (id) => setRules(toggleForbid(rules, save.deck, id)),
+        });
+        spareList.update(rules, (id) => canAdd(rules, owned, id));
+        trunkBox.hidden = rows.length === 0;
+        trunkSummary.textContent = t("deck.trunk.summary", {
+            count: summarizeSave(owned).spareCards.toLocaleString(getLang()),
+        });
+    };
+
+    // Shows the rules everywhere, and drops the answer they outdate. Rule changes update the rows in place, so
+    // the focus stays where it is; a change of the hand-added copies rebuilds them.
+    const refresh = (rebuild: boolean): void => {
+        const owned = ownedSave();
+        if (!owned) return;
+        if (rebuild) {
+            renderSummary();
+            renderSpare();
+        } else {
+            spareList?.update(rules, (id) => canAdd(rules, owned, id));
+        }
         lockGrid?.update(rules);
-        spareList?.update(rules, (id) => canAdd(rules, save, id));
         renderAdded();
         renderRulesCount();
         discardAnswer();
     };
 
+    const setRules = (next: DeckRules): void => {
+        rules = next;
+        refresh(false);
+    };
+
+    const setManual = (next: { manual: ManualCards; rules: DeckRules }): void => {
+        manual = next.manual;
+        rules = next.rules;
+        refresh(true);
+    };
+
+    const nameOf = (id: number): string => cards.get(id)?.name ?? String(id);
+
+    // Adds one copy of a card to the available ones. Past the copies a deck can use, it says so and adds nothing.
+    const addByHandCard = (id: number): void => {
+        const save = saves[selected];
+        if (!save) return;
+        if (!canAddByHand(save, manual, id)) {
+            say(t("deck.manual.cap", { max: copiesOwned(save, manual, id), name: nameOf(id) }), true);
+            return;
+        }
+        setManual({ manual: addByHand(save, manual, id), rules });
+        say(t("deck.manual.added", { name: nameOf(id) }));
+        manualInput.value = "";
+        manualInput.focus();
+        spareList?.reveal(id);
+    };
+
+    // The whole name, as the button and Enter take it. A part of a name is for the suggestions to complete.
+    const addByName = (text: string): void => {
+        const card = findCardByName(cards, text);
+        if (!card) {
+            say(t("deck.manual.unknown"), true);
+            return;
+        }
+        addByHandCard(card.id);
+    };
+
+    // After the delete the focus stays on the same row's button, or moves to the field when the row has none left.
+    const deleteByHand = (id: number): void => {
+        const save = saves[selected];
+        if (!save) return;
+        setManual(removeManualCopy(save, manual, rules, id));
+        say(t("deck.manual.removed", { name: nameOf(id) }));
+        if (!spareList?.focusDelete(id)) manualInput.focus();
+    };
+
     // The deck as tiles to lock or forbid, and the spare cards, for the chosen save. Every choice of save starts
-    // from the default rules.
+    // from the default rules and no hand-added copy.
     const renderCards = (): void => {
         const save = saves[selected];
         if (!save) return;
@@ -211,21 +314,13 @@ function mountDeckPage(): void {
         clear(lockHost);
         lockHost.appendChild(lockGrid.element);
 
-        const rows = spareRows(save, cards);
-        clear(trunkList);
-        spareList = renderSpareList(trunkList, rows, {
-            onAdd: (id) => setRules(addCopy(rules, save, id)),
-            onRemove: (id) => setRules(removeCopy(rules, id)),
-            onToggleForbid: (id) => setRules(toggleForbid(rules, save.deck, id)),
-        });
-        spareList.update(rules, (id) => canAdd(rules, save, id));
+        renderSpare();
         renderAdded();
         renderRulesCount();
-        trunkSummary.textContent = t("deck.trunk.summary", {
-            count: summarizeSave(save).spareCards.toLocaleString(getLang()),
-        });
-        trunk.hidden = rows.length === 0;
-        trunk.open = false;
+        manualInput.value = "";
+        say("");
+        // An empty trunk starts open: the field to add cards is in it.
+        trunk.open = trunkBox.hidden;
     };
 
     const renderChooser = (): void => {
@@ -245,6 +340,7 @@ function mountDeckPage(): void {
             radio.className = "mt-0.5 size-6 shrink-0 accent-wb-blue";
             radio.addEventListener("change", () => {
                 selected = index;
+                manual = new Map();
                 discardAnswer();
                 renderSummary();
                 renderCards();
@@ -268,6 +364,7 @@ function mountDeckPage(): void {
     const resetFile = (): void => {
         saves = [];
         selected = 0;
+        manual = new Map();
         collection.hidden = true;
         chooser.hidden = true;
         clear(chooserOptions);
@@ -303,6 +400,20 @@ function mountDeckPage(): void {
         });
     });
 
+    // One list for the whole page, made once: it listens to the document, so a new one per save would pile up.
+    new Autocomplete(manualInput, {
+        fetchList: async () => (await getCardsIndex()).map((card) => card.name),
+        onSelect: (name) => addByName(name),
+    });
+    manualAdd.addEventListener("click", () => addByName(manualInput.value));
+    manualInput.addEventListener("keydown", (event) => {
+        // Enter on a suggestion was taken by the list; with none open it adds the name as typed.
+        if (event.key === "Enter" && !event.defaultPrevented) {
+            event.preventDefault();
+            addByName(manualInput.value);
+        }
+    });
+
     const failureMessage = (failure: DeckFailure): string => t(`deck.error.${failure.kind}`);
 
     // After a busy answer the retry waits for the time the server asked for, counting down on the button.
@@ -334,7 +445,8 @@ function mountDeckPage(): void {
 
     const compute = async (): Promise<void> => {
         const save = saves[selected];
-        if (!save || running) return;
+        const owned = ownedSave();
+        if (!save || !owned || running) return;
         stopCountdown();
         clear(computeMsg);
         results.hidden = true;
@@ -346,7 +458,9 @@ function mountDeckPage(): void {
 
         const controller = new AbortController();
         running = controller;
-        const request = buildDeckRequest(save, rules);
+        const request = buildDeckRequest(owned, rules);
+        // Read from what is sent, so the sentence in the results is true of this answer.
+        const withManualCopies = manual.size > 0;
         try {
             const answer = await optimizeDeck(request, controller.signal);
             if (controller.signal.aborted) return;
@@ -355,6 +469,7 @@ function mountDeckPage(): void {
                 locked: lockedCards(save.deck, rules.locked),
                 added: addedCards(rules),
                 hasRules: request.locked!.length > 0 || request.forbidden!.length > 0,
+                withManualCards: withManualCopies,
             });
             results.appendChild(view.element);
             loading.hidden = true;

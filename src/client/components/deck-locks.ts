@@ -133,12 +133,18 @@ export function renderAddedList(
 export interface SpareHandlers {
     onAdd(id: number): void;
     onRemove(id: number): void;
+    // Takes back one copy the player added by hand to the available cards.
+    onDeleteManual(id: number): void;
     onToggleForbid(id: number): void;
 }
 
 export interface SpareList {
     // Shows the rules on the rows that already exist; `canAdd` says whether a card can take another copy.
     update(rules: DeckRules, canAdd: (id: number) => boolean): void;
+    // Moves the focus to the button that deletes a hand-added copy of the card; false when the row has none.
+    focusDelete(id: number): boolean;
+    // Scrolls the row of the card into view inside its box, without moving the page more than it must.
+    reveal(id: number): void;
 }
 
 const ROW_BUTTON = "wb-btn !min-h-8 !px-3 text-sm";
@@ -154,14 +160,15 @@ function rowButton(label: string, action: string, onClick: () => void): HTMLButt
 }
 
 // The spare cards as a compact list: name, ATK or card type, the copies still left, and the rules the player
-// can set on the card. The buttons wrap onto their own line under the name, so a narrow screen never scrolls.
+// can set on the card. The buttons wrap onto their own line under the name, so a narrow screen never scrolls. A
+// card with copies added by hand is marked, and has a button to delete one of them.
 export function renderSpareList(
     list: HTMLElement,
     rows: readonly SpareRow[],
     handlers: SpareHandlers
 ): SpareList {
     const locale = getLang();
-    const parts = rows.map(({ card, count }) => {
+    const parts = rows.map(({ card, count, manual }) => {
         const item = document.createElement("li");
         item.className =
             "flex flex-wrap items-baseline gap-x-3 gap-y-2 px-2 py-1.5 border-t border-wb-rule first:border-t-0";
@@ -175,6 +182,10 @@ export function renderSpareList(
             : card.typeName;
         const copies = document.createElement("span");
         copies.className = "font-bold tabular-nums";
+        const byHand = document.createElement("span");
+        byHand.className = "px-1.5 text-sm font-bold text-white bg-wb-blue";
+        byHand.dataset.mark = "manual";
+        byHand.textContent = t("deck.manual.mark");
         const state = document.createElement("span");
         state.className = "basis-full text-sm font-bold text-wb-red";
         state.textContent = t("deck.rule.forbidden");
@@ -189,10 +200,20 @@ export function renderSpareList(
         forbid.setAttribute("aria-label", t("deck.rule.forbid-card", { name: card.name }));
         forbid.className = `${ROW_BUTTON} aria-pressed:!bg-wb-red aria-pressed:!text-white`;
         buttons.append(add, remove, forbid);
+        let deleteButton: HTMLButtonElement | null = null;
+        if (manual > 0) {
+            deleteButton = rowButton(t("deck.manual.delete"), "delete", () =>
+                handlers.onDeleteManual(card.id)
+            );
+            deleteButton.setAttribute("aria-label", t("deck.manual.delete-card", { name: card.name }));
+            buttons.appendChild(deleteButton);
+        }
 
-        item.append(name, stat, copies, state, buttons);
+        item.append(name, stat);
+        if (manual > 0) item.appendChild(byHand);
+        item.append(copies, state, buttons);
         list.appendChild(item);
-        return { card, count, item, copies, state, add, remove, forbid };
+        return { card, count, item, copies, state, add, remove, forbid, deleteButton };
     });
 
     const update = (rules: DeckRules, canAdd: (id: number) => boolean): void => {
@@ -212,5 +233,16 @@ export function renderSpareList(
             else if (hadFocus === add && add.disabled && !remove.hidden) remove.focus();
         }
     };
-    return { update };
+
+    const focusDelete = (id: number): boolean => {
+        const button = parts.find(({ card }) => card.id === id)?.deleteButton;
+        if (!button) return false;
+        button.focus();
+        return true;
+    };
+
+    const reveal = (id: number): void => {
+        parts.find(({ card }) => card.id === id)?.item.scrollIntoView({ block: "nearest" });
+    };
+    return { update, focusDelete, reveal };
 }

@@ -9,7 +9,7 @@ import type {
     DeckOptimizeResponse,
     DeckStats,
 } from "../../shared/types.js";
-import { copyLimit } from "../../shared/limits.js";
+import { copyLimit, MAX_COPIES_PER_CARD } from "../../shared/limits.js";
 import { ApiError } from "./api.js";
 import { MAX_SAVE_FILE_BYTES, parseFmSaves, type FmSave, type ParseSavesResult } from "./fm-save.js";
 
@@ -190,18 +190,86 @@ export function requiredCards(deck: readonly number[], rules: DeckRules): DeckLo
     return [...counts].map(([id, count]) => ({ id, count }));
 }
 
+// Copies of each card the player added by hand, beyond what the save holds. A card with no copy has no entry.
+export type ManualCards = ReadonlyMap<number, number>;
+
+// The save as the optimiser should see it: the trunk of the save plus the copies added by hand, one entry per
+// card. Everything that reads a save (counts, rows, limits, the request) reads this one, so none of them can
+// disagree about what the player owns.
+export function withManualCards(save: FmSave, manual: ManualCards): FmSave {
+    if (manual.size === 0) return save;
+    const counts = new Map(save.trunk.map(({ id, count }) => [id, count]));
+    for (const [id, count] of manual) counts.set(id, (counts.get(id) ?? 0) + count);
+    return { ...save, trunk: [...counts].map(([id, count]) => ({ id, count })) };
+}
+
+// Every copy the player holds of a card: in the deck, in the trunk and added by hand.
+export function copiesOwned(save: FmSave, manual: ManualCards, id: number): number {
+    const inTrunk = save.trunk.find((entry) => entry.id === id)?.count ?? 0;
+    return copiesIn(save.deck, id) + inTrunk + (manual.get(id) ?? 0);
+}
+
+// Past MAX_COPIES_PER_CARD copies a deck can never use another one (copyLimit stops there, or at the copies the
+// deck already holds), so a hand add that would only pile up copies is refused.
+export function canAddByHand(save: FmSave, manual: ManualCards, id: number): boolean {
+    return copiesOwned(save, manual, id) < MAX_COPIES_PER_CARD;
+}
+
+export function addByHand(save: FmSave, manual: ManualCards, id: number): ManualCards {
+    if (!canAddByHand(save, manual, id)) return manual;
+    return new Map(manual).set(id, (manual.get(id) ?? 0) + 1);
+}
+
+// The card a typed name stands for: the whole name, ignoring case and the spaces around it.
+export function findCardByName(cards: CardLookup, text: string): CardIndexEntry | undefined {
+    const wanted = text.trim().toLowerCase();
+    if (wanted === "") return undefined;
+    for (const card of cards.values()) {
+        if (card.name.trim().toLowerCase() === wanted) return card;
+    }
+    return undefined;
+}
+
+// Takes one hand-added copy back, and keeps the rules valid for what the player owns afterwards, since the
+// server refuses a request that asks for more copies than exist. The copies added to the deck are cut to what
+// the card can still give; a ban on a card the player no longer holds anywhere is lifted, and one on a card
+// the deck or the trunk still holds stays. The locks of the deck are left as they are. `save` is the save
+// itself: only hand-added copies can be removed.
+export function removeManualCopy(
+    save: FmSave,
+    manual: ManualCards,
+    rules: DeckRules,
+    id: number
+): { manual: ManualCards; rules: DeckRules } {
+    const count = manual.get(id) ?? 0;
+    if (count === 0) return { manual, rules };
+    const nextManual = count === 1 ? without(manual, id) : new Map(manual).set(id, count - 1);
+
+    const owned = copiesOwned(save, nextManual, id);
+    const inDeck = copiesIn(save.deck, id);
+    const room = Math.max(0, copyLimit(owned, inDeck) - inDeck);
+    const added = rules.added.get(id) ?? 0;
+    let nextAdded = rules.added;
+    if (added > room) nextAdded = room === 0 ? without(rules.added, id) : new Map(rules.added).set(id, room);
+    const forbidden = owned === 0 ? rules.forbidden.filter((card) => card !== id) : rules.forbidden;
+    return { manual: nextManual, rules: { ...rules, added: nextAdded, forbidden } };
+}
+
 export interface SpareRow {
     card: CardIndexEntry;
+    // Copies in the trunk, those added by hand included.
     count: number;
+    // Of those, the copies added by hand.
+    manual: number;
 }
 
 // The trunk with its cards: monsters first, strongest ATK first, then the other cards by name. A card the
 // catalog does not know is left out, since there is nothing to show of it.
-export function spareRows(save: FmSave, cards: CardLookup): SpareRow[] {
+export function spareRows(save: FmSave, cards: CardLookup, manual: ManualCards = new Map()): SpareRow[] {
     const rows: SpareRow[] = [];
     for (const { id, count } of save.trunk) {
         const card = cards.get(id);
-        if (card) rows.push({ card, count });
+        if (card) rows.push({ card, count, manual: manual.get(id) ?? 0 });
     }
     return rows.sort((a, b) => {
         if (a.card.isMonster !== b.card.isMonster) return a.card.isMonster ? -1 : 1;

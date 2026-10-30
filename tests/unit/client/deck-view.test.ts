@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../../../src/client/lib/api.js";
 import {
+    addByHand,
     addCopy,
     addedCards,
     buildDeckRequest,
     canAdd,
+    canAddByHand,
     classifyDeckFailure,
+    copiesOwned,
     defaultLocks,
     defaultRules,
+    findCardByName,
     formatNumber,
     lockedCards,
     lowersAverage,
@@ -16,6 +20,7 @@ import {
     parseRetryAfter,
     readSaveFile,
     removeCopy,
+    removeManualCopy,
     requiredCards,
     spareRows,
     statRows,
@@ -23,8 +28,10 @@ import {
     toggleForbid,
     toggleLock,
     verdictOf,
+    withManualCards,
     type CardLookup,
     type DeckRules,
+    type ManualCards,
 } from "../../../src/client/lib/deck-view.js";
 import { MAX_SAVE_FILE_BYTES, type FmSave } from "../../../src/client/lib/fm-save.js";
 import type { CardIndexEntry, DeckStats } from "../../../src/shared/types.js";
@@ -622,6 +629,294 @@ describe("deck rules", () => {
 
         it("sends the banned cards as they are", () => {
             expect(buildDeckRequest(save, toggleForbid(base, deck, 5)).forbidden).toEqual([5]);
+        });
+    });
+});
+
+describe("cards added by hand", () => {
+    // Card 1 is in the deck once and in the trunk twice; 100 only in the trunk; 40 four times in the deck.
+    const deck = [...Array.from({ length: 36 }, (_, i) => i + 1), 40, 40, 40, 40];
+    const save: FmSave = {
+        deck,
+        trunk: [
+            { id: 1, count: 2 },
+            { id: 100, count: 1 },
+        ],
+    };
+    const base: DeckRules = { locked: deck.map(() => false), added: new Map(), forbidden: [] };
+    const hand = (entries: Array<[number, number]>): ManualCards => new Map(entries);
+
+    describe("withManualCards", () => {
+        it("returns the save itself when nothing was added", () => {
+            expect(withManualCards(save, new Map())).toBe(save);
+        });
+
+        it("adds the copies to the trunk entry of the card, one entry per card", () => {
+            const owned = withManualCards(save, hand([[100, 1]]));
+
+            expect(owned.trunk).toEqual([
+                { id: 1, count: 2 },
+                { id: 100, count: 2 },
+            ]);
+            expect(owned.deck).toBe(save.deck);
+        });
+
+        it("adds an entry for a card the trunk does not hold, after the others", () => {
+            const owned = withManualCards(
+                save,
+                hand([
+                    [500, 2],
+                    [1, 1],
+                ])
+            );
+
+            expect(owned.trunk).toEqual([
+                { id: 1, count: 3 },
+                { id: 100, count: 1 },
+                { id: 500, count: 2 },
+            ]);
+        });
+
+        it("works on a save with an empty trunk", () => {
+            expect(withManualCards({ deck, trunk: [] }, hand([[7, 1]])).trunk).toEqual([
+                { id: 7, count: 1 },
+            ]);
+        });
+
+        it("does not change the save it was given", () => {
+            withManualCards(save, hand([[100, 1]]));
+            expect(save.trunk).toEqual([
+                { id: 1, count: 2 },
+                { id: 100, count: 1 },
+            ]);
+        });
+    });
+
+    describe("the copy cap", () => {
+        it("counts the deck, the trunk and the copies added by hand", () => {
+            expect(copiesOwned(save, new Map(), 1)).toBe(3);
+            expect(copiesOwned(save, hand([[1, 2]]), 1)).toBe(5);
+            expect(copiesOwned(save, new Map(), 999)).toBe(0);
+        });
+
+        it("accepts a card until its copies reach three", () => {
+            let manual: ManualCards = new Map();
+            expect(canAddByHand(save, manual, 100)).toBe(true);
+            manual = addByHand(save, manual, 100);
+            manual = addByHand(save, manual, 100);
+            expect(manual.get(100)).toBe(2);
+            expect(canAddByHand(save, manual, 100)).toBe(false);
+        });
+
+        it("refuses a card the player already holds three of, on the first try", () => {
+            // Card 1: one in the deck and two in the trunk.
+            expect(canAddByHand(save, new Map(), 1)).toBe(false);
+            const manual: ManualCards = new Map();
+            expect(addByHand(save, manual, 1)).toBe(manual);
+        });
+
+        it("refuses a card the deck holds more than three of", () => {
+            expect(canAddByHand(save, new Map(), 40)).toBe(false);
+        });
+
+        it("adds a card the player has none of", () => {
+            expect(addByHand(save, new Map(), 500)).toEqual(new Map([[500, 1]]));
+        });
+
+        it("lets the optimiser use the copies: the cap matches copyLimit", () => {
+            // A card owned only by hand, three times, can be added to the deck three times.
+            let manual: ManualCards = new Map();
+            for (let i = 0; i < 5; i++) manual = addByHand(save, manual, 500);
+            expect(manual.get(500)).toBe(3);
+            const owned = withManualCards(save, manual);
+            let rules = base;
+            for (let i = 0; i < 5; i++) rules = addCopy(rules, owned, 500);
+            expect(rules.added.get(500)).toBe(3);
+        });
+    });
+
+    describe("findCardByName", () => {
+        const cards: CardLookup = new Map([
+            [1, entry(1, { name: "Blue-Eyes White Dragon" })],
+            [2, entry(2, { name: "Blue-Eyes Ultimate Dragon" })],
+        ]);
+
+        it("finds the exact name", () => {
+            expect(findCardByName(cards, "Blue-Eyes White Dragon")?.id).toBe(1);
+        });
+
+        it("ignores case and the spaces around the name", () => {
+            expect(findCardByName(cards, "  blue-eyes WHITE dragon \t")?.id).toBe(1);
+        });
+
+        it("does not take a part of a name or a name with other characters", () => {
+            expect(findCardByName(cards, "Blue-Eyes")).toBeUndefined();
+            expect(findCardByName(cards, "Blue Eyes White Dragon")).toBeUndefined();
+            expect(findCardByName(cards, "Blue-Eyes White  Dragon")).toBeUndefined();
+        });
+
+        it("finds nothing for an empty text", () => {
+            expect(findCardByName(cards, "")).toBeUndefined();
+            expect(findCardByName(cards, "   ")).toBeUndefined();
+        });
+    });
+
+    describe("removing a copy added by hand", () => {
+        it("takes one copy back and drops the entry at none", () => {
+            const two = hand([[500, 2]]);
+            const one = removeManualCopy(save, two, base, 500);
+            expect(one.manual.get(500)).toBe(1);
+            expect(removeManualCopy(save, one.manual, one.rules, 500).manual.has(500)).toBe(false);
+        });
+
+        it("changes nothing for a card with no hand-added copy", () => {
+            // Card 1 is in the trunk of the save, but those copies are the save's own.
+            const manual: ManualCards = new Map();
+            const result = removeManualCopy(save, manual, base, 1);
+            expect(result.manual).toBe(manual);
+            expect(result.rules).toBe(base);
+        });
+
+        it("cuts the copies added to the deck to what the card can still give", () => {
+            // Card 500 owned only by hand, twice, and both copies are added to the deck.
+            const rules: DeckRules = { ...base, added: new Map([[500, 2]]) };
+
+            const once = removeManualCopy(save, hand([[500, 2]]), rules, 500);
+            expect(once.rules.added.get(500)).toBe(1);
+
+            const none = removeManualCopy(save, once.manual, once.rules, 500);
+            expect(none.rules.added.has(500)).toBe(false);
+        });
+
+        it("keeps the added copies that still fit", () => {
+            // Card 100 has one in the trunk and two by hand, with one added to the deck: two remain, one fits.
+            const rules: DeckRules = { ...base, added: new Map([[100, 1]]) };
+
+            const result = removeManualCopy(save, hand([[100, 2]]), rules, 100);
+
+            expect(result.rules.added).toEqual(new Map([[100, 1]]));
+        });
+
+        it("never leaves a request the server would refuse as invalid locks", () => {
+            const rules: DeckRules = { ...base, added: new Map([[500, 3]]) };
+            let manual = hand([[500, 3]]);
+            let current = rules;
+            for (let i = 0; i < 3; i++) {
+                ({ manual, rules: current } = removeManualCopy(save, manual, current, 500));
+                const owned = withManualCards(save, manual);
+                const asked =
+                    requiredCards(save.deck, current).find((entry) => entry.id === 500)?.count ?? 0;
+                const present = owned.trunk.find((entry) => entry.id === 500)?.count ?? 0;
+                expect(asked).toBeLessThanOrEqual(present);
+            }
+        });
+
+        it("lifts the ban on a card the player no longer holds anywhere", () => {
+            const rules: DeckRules = { ...base, forbidden: [500, 100] };
+
+            const result = removeManualCopy(save, hand([[500, 1]]), rules, 500);
+
+            expect(result.rules.forbidden).toEqual([100]);
+        });
+
+        it("keeps the ban while the trunk of the save still holds the card", () => {
+            const rules: DeckRules = { ...base, forbidden: [100] };
+
+            const result = removeManualCopy(save, hand([[100, 1]]), rules, 100);
+
+            expect(result.rules.forbidden).toEqual([100]);
+        });
+
+        it("keeps the ban while the deck still holds the card", () => {
+            const rules: DeckRules = { ...base, forbidden: [5] };
+
+            const result = removeManualCopy({ deck, trunk: [] }, hand([[5, 1]]), rules, 5);
+
+            expect(result.rules.forbidden).toEqual([5]);
+        });
+
+        it("keeps the ban while another hand-added copy is left", () => {
+            const rules: DeckRules = { ...base, forbidden: [500] };
+
+            const result = removeManualCopy(save, hand([[500, 2]]), rules, 500);
+
+            expect(result.rules.forbidden).toEqual([500]);
+        });
+
+        it("leaves the locks of the deck as they are", () => {
+            const locked = deck.map((id) => id === 1 || id === 40);
+            const rules: DeckRules = { ...base, locked, added: new Map([[500, 1]]) };
+
+            const result = removeManualCopy(save, hand([[500, 1]]), rules, 500);
+
+            expect(result.rules.locked).toEqual(locked);
+        });
+
+        it("does not change the maps it was given", () => {
+            const manual = hand([[500, 2]]);
+            const rules: DeckRules = { ...base, added: new Map([[500, 2]]), forbidden: [500] };
+
+            removeManualCopy(save, manual, rules, 500);
+
+            expect(manual).toEqual(new Map([[500, 2]]));
+            expect(rules.added).toEqual(new Map([[500, 2]]));
+            expect(rules.forbidden).toEqual([500]);
+        });
+    });
+
+    describe("what the page reads", () => {
+        it("sends the hand-added copies as ordinary trunk copies, ids and counts only", () => {
+            const owned = withManualCards(
+                save,
+                hand([
+                    [100, 1],
+                    [500, 2],
+                ])
+            );
+
+            const request = buildDeckRequest(owned, base);
+
+            expect(request.trunk).toEqual([
+                { id: 1, count: 2 },
+                { id: 100, count: 2 },
+                { id: 500, count: 2 },
+            ]);
+            expect(Object.keys(request).sort()).toEqual([
+                "deck",
+                "forbidden",
+                "keepNonMonsters",
+                "locked",
+                "trunk",
+            ]);
+        });
+
+        it("sends the same request as before when nothing was added", () => {
+            expect(buildDeckRequest(withManualCards(save, new Map()), base)).toEqual(
+                buildDeckRequest(save, base)
+            );
+        });
+
+        it("counts the hand-added copies in the summary, and lets a card the save lacks be added to the deck", () => {
+            const owned = withManualCards({ deck, trunk: [] }, hand([[500, 1]]));
+
+            expect(summarizeSave(owned)).toEqual({ deckCards: 40, spareCards: 1, spareKinds: 1 });
+            expect(canAdd(base, owned, 500)).toBe(true);
+            expect(canAdd(base, { deck, trunk: [] }, 500)).toBe(false);
+        });
+
+        it("gives a row the copies by hand and the copies in all", () => {
+            const cards: CardLookup = new Map([
+                [1, entry(1)],
+                [100, entry(100)],
+            ]);
+            const manual = hand([[100, 1]]);
+
+            const rows = spareRows(withManualCards(save, manual), cards, manual);
+
+            expect(rows.map(({ card, count, manual: byHand }) => [card.id, count, byHand])).toEqual([
+                [1, 2, 0],
+                [100, 2, 1],
+            ]);
         });
     });
 });

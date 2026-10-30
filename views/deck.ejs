@@ -56,7 +56,19 @@
                     </div>
                     <details id="deck-trunk" class="mb-4">
                         <summary id="deck-trunk-summary" class="min-h-11 py-2 font-bold cursor-pointer"></summary>
-                        <div class="sink max-h-80 overflow-y-auto" tabindex="0" role="region" aria-labelledby="deck-trunk-summary">
+                        <!-- Outside the scroll box below, so the suggestions of the field are not clipped by it. -->
+                        <div id="deck-manual" class="mb-3">
+                            <label for="deck-manual-input" class="block mb-1 font-bold"><%= t('deck.manual.label') %></label>
+                            <div class="flex items-start gap-2">
+                                <!-- Own block wrapper: the autocomplete list is absolute with no top, so its parent must not be flex. -->
+                                <div class="min-w-0 flex-1 basis-48">
+                                    <input type="text" id="deck-manual-input" aria-describedby="deck-manual-msg" class="wb-input w-full" />
+                                </div>
+                                <button type="button" id="deck-manual-add" class="wb-btn"><%= t('deck.manual.add') %></button>
+                            </div>
+                            <p id="deck-manual-msg" role="status" aria-live="polite" class="empty:hidden m-0 mt-2 text-sm font-bold"></p>
+                        </div>
+                        <div id="deck-trunk-box" class="sink max-h-80 overflow-y-auto" tabindex="0" role="region" aria-labelledby="deck-trunk-summary">
                             <ul id="deck-trunk-list" class="m-0 p-0 list-none"></ul>
                         </div>
                     </details>
