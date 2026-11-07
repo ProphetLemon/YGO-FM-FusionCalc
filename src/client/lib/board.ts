@@ -73,6 +73,18 @@ export function slotOfRef(sent: SentBoard, ref: SlotRef): number | null {
     return sent.slots[ref.zone][ref.index] ?? null;
 }
 
+// Where the user sees a slot: its place in the zone from 1 to 5, counting the empty slots before it. It is not
+// the index in the array that was sent, which skips them. Null when the reference points at nothing sent.
+export function boardPosition(sent: SentBoard, ref: SlotRef): number | null {
+    const slot = slotOfRef(sent, ref);
+    return slot === null ? null : slot + 1;
+}
+
+// The same for the field monster a chain starts from, which the answer names by its index in `monsterIds`.
+export function fieldPosition(sent: SentBoard, fieldIndex: number): number | null {
+    return boardPosition(sent, { zone: "monster", index: fieldIndex });
+}
+
 export interface SlotAddress {
     zone: BoardZone;
     slot: number;

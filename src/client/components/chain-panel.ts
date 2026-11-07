@@ -1,6 +1,8 @@
 import type { CardSummary, ChainResult } from "../../shared/types.js";
 import { t } from "../lib/i18n.js";
+import type { SentBoard } from "../lib/board.js";
 import { createCardTile } from "./card-tile.js";
+import { fieldTag } from "./slot-tag.js";
 
 // Stands in for the number while the translated sentence is split around it.
 const ATK_MARK = "\u0000";
@@ -51,11 +53,14 @@ export function operandOrigins(
 }
 
 // The chains of the answer, best first. With several, a tab per chain picks the one shown; the others stay
-// in the page, hidden. The best chain also says how much better it is than the best single fusion.
+// in the page, hidden. The best chain also says how much better it is than the best single fusion. With
+// `sent`, the board the answer was made for, a chain that starts on the field tags that monster with its
+// slot. Cards of the hand carry no tag: a chain does not say which copy of a card it took.
 export function renderChains(
     chains: readonly ChainResult[],
     bestSingle: CardSummary | null,
-    handIds: readonly number[]
+    handIds: readonly number[],
+    sent: SentBoard | null = null
 ): HTMLElement {
     const root = document.createElement("div");
     root.className = "chain-panel";
@@ -63,7 +68,7 @@ export function renderChains(
     const tabbed = chains.length > 1;
 
     const entries = chains.map((chain, index) => {
-        const entry = renderChain(chain, index === 0 ? bestSingle : null, handIds, index === 0);
+        const entry = renderChain(chain, index === 0 ? bestSingle : null, handIds, index === 0, sent);
         if (tabbed) {
             entry.id = `${id}-panel-${index}`;
             entry.setAttribute("role", "tabpanel");
@@ -153,7 +158,8 @@ function renderChain(
     chain: ChainResult,
     bestSingle: CardSummary | null,
     handIds: readonly number[],
-    isBest: boolean
+    isBest: boolean,
+    sent: SentBoard | null
 ): HTMLElement {
     const entry = document.createElement("div");
     entry.className = isBest ? "chain-entry chain-best" : "chain-entry";
@@ -162,7 +168,7 @@ function renderChain(
     body.className =
         "sink grid grid-cols-1 min-[701px]:grid-cols-[minmax(0,1fr)_210px] gap-6 items-start " +
         "p-3.5 min-[701px]:px-5 min-[701px]:py-[18px]";
-    body.appendChild(renderSteps(chain, handIds));
+    body.appendChild(renderSteps(chain, handIds, sent));
     body.appendChild(renderFinal(chain.finalCard, isBest ? bestSingle : null));
     entry.appendChild(body);
 
@@ -176,7 +182,7 @@ function renderChain(
     return entry;
 }
 
-function renderSteps(chain: ChainResult, handIds: readonly number[]): HTMLElement {
+function renderSteps(chain: ChainResult, handIds: readonly number[], sent: SentBoard | null): HTMLElement {
     const origins = operandOrigins(chain, handIds);
     const steps = document.createElement("ol");
     steps.className = "m-0 p-0 list-none flex flex-col gap-[18px] min-w-0";
@@ -193,7 +199,8 @@ function renderSteps(chain: ChainResult, handIds: readonly number[]): HTMLElemen
 
         const row = document.createElement("div");
         row.className = "flex flex-wrap items-center gap-3";
-        row.appendChild(operand(step.card1, origin1));
+        const field = i === 0 ? fieldTag(sent, chain.fieldIndex) : null;
+        row.appendChild(operand(step.card1, origin1, field));
         row.appendChild(operator("+"));
         row.appendChild(operand(step.card2, origin2));
         row.appendChild(operator("="));
@@ -204,11 +211,16 @@ function renderSteps(chain: ChainResult, handIds: readonly number[]): HTMLElemen
     return steps;
 }
 
-// A card of the hand, or the result of an earlier step with a caption that says which.
-function operand(card: CardSummary, origin: number | null): HTMLElement {
+// A card of the hand or of the field (with the tag of its slot), or the result of an earlier step with a
+// caption that says which.
+function operand(card: CardSummary, origin: number | null, tag: HTMLElement | null = null): HTMLElement {
     const box = document.createElement("div");
     if (origin === null) {
         box.appendChild(createCardTile(card, { size: "s" }));
+        if (tag) {
+            tag.classList.add("mt-1");
+            box.appendChild(tag);
+        }
         return box;
     }
     box.appendChild(createCardTile(card, { size: "s", kind: "fusion" }));

@@ -1,6 +1,8 @@
 import type { CardSummary, EquipExpanded, FusionExpanded, RitualExpanded } from "../../shared/types.js";
 import { t } from "../lib/i18n.js";
+import type { SentBoard } from "../lib/board.js";
 import { createCardTile, isEquipCard } from "./card-tile.js";
+import { slotTag } from "./slot-tag.js";
 
 // The rows of the calculator results as the Workbench draws them (D9): the fusions table, the equips and
 // the rituals. The containers (`#outputarealeft`, `#outputareaother`, `#outputarearight`, `#rituals-output`)
@@ -56,9 +58,21 @@ function headerRow(srOnly: boolean): HTMLElement {
     return row;
 }
 
+// An input of a fusion: its chip, then the tag of the slot it comes from. The tag is a sibling of the chip, so
+// the chip keeps the card name alone.
+function operandChip(card: CardSummary, tag: HTMLElement | null): HTMLElement {
+    const group = element("span", "fusion-operand inline-flex min-w-0 max-w-full items-center gap-1.5");
+    const chip = element("span", `${CHIP_CLASS} min-w-0 [overflow-wrap:anywhere]`);
+    chip.textContent = card.name;
+    group.appendChild(chip);
+    if (tag) group.appendChild(tag);
+    return group;
+}
+
 function fusionRow(
     entry: FusionExpanded,
     best: boolean,
+    sent: SentBoard | null,
     onApply?: (entry: FusionExpanded) => void
 ): HTMLElement {
     const result = entry.result;
@@ -110,13 +124,13 @@ function fusionRow(
     }
 
     const inputs = cell("flex flex-wrap items-center gap-1.5");
-    const first = element("span", CHIP_CLASS);
-    first.textContent = entry.card1.name;
     const plus = element("span", "");
     plus.textContent = "+";
-    const second = element("span", CHIP_CLASS);
-    second.textContent = entry.card2.name;
-    inputs.append(first, plus, second);
+    inputs.append(
+        operandChip(entry.card1, slotTag(sent, entry.from?.[0])),
+        plus,
+        operandChip(entry.card2, slotTag(sent, entry.from?.[1]))
+    );
 
     row.append(tileCell, nameCell, statCell, inputs);
     return row;
@@ -124,16 +138,24 @@ function fusionRow(
 
 // A table of fusions: a header row, then one row per fusion. With `highlightFirst` the first row is the best
 // single fusion (the server sorts the monsters by the ATK of what they make). `label` names the table. With
-// `onApply` every row can be chosen, by pointer or by the button inside it.
+// `onApply` every row can be chosen, by pointer or by the button inside it. With `sent`, the board the answer
+// was made for, every input carries the tag of its slot.
 export function renderFusionTable(
     fusions: readonly FusionExpanded[],
-    options: { highlightFirst: boolean; label: string; onApply?: (fusion: FusionExpanded) => void }
+    options: {
+        highlightFirst: boolean;
+        label: string;
+        onApply?: (fusion: FusionExpanded) => void;
+        sent?: SentBoard | null;
+    }
 ): HTMLElement {
     const table = element("div", "fusion-table", "table");
     table.setAttribute("aria-label", options.label);
     table.appendChild(headerRow(!options.highlightFirst));
     fusions.forEach((fusion, index) => {
-        table.appendChild(fusionRow(fusion, options.highlightFirst && index === 0, options.onApply));
+        table.appendChild(
+            fusionRow(fusion, options.highlightFirst && index === 0, options.sent ?? null, options.onApply)
+        );
     });
     return table;
 }
@@ -154,38 +176,59 @@ function arrow(): SVGElement {
     return svg;
 }
 
-// A tile with its caption under it.
-function captioned(card: CardSummary, caption: string, kind?: "fusion"): HTMLElement {
+// A tile with its caption under it, and under that the tag of its slot when it has one.
+function captioned(
+    card: CardSummary,
+    caption: string,
+    kind?: "fusion",
+    tag?: HTMLElement | null
+): HTMLElement {
     const column = element("div", "flex flex-col items-center gap-1.5");
     column.appendChild(createCardTile(card, { size: "s", kind }));
     const label = element("span", CAPTION_CLASS);
     label.textContent = caption;
     column.appendChild(label);
+    if (tag) column.appendChild(tag);
     return column;
 }
 
 // The Equip card goes first whatever the hand order was. A pair that is not one Equip and one other card
 // cannot be told apart by role, so both cards get the neutral caption.
-export function renderEquipRow(entry: EquipExpanded): HTMLElement {
+export function renderEquipRow(entry: EquipExpanded, sent: SentBoard | null = null): HTMLElement {
     const row = element("div", "equip-entry flex flex-wrap items-center gap-3.5");
     const equipFirst = isEquipCard(entry.card1);
     const byRole = equipFirst !== isEquipCard(entry.card2);
-    const [from, to] = equipFirst || !byRole ? [entry.card1, entry.card2] : [entry.card2, entry.card1];
+    // `entry.from` follows card1 and card2, so a swapped pair swaps its slots with it.
+    const swapped = !(equipFirst || !byRole);
+    const [from, to] = swapped ? [entry.card2, entry.card1] : [entry.card1, entry.card2];
+    const [fromRef, toRef] = swapped
+        ? [entry.from?.[1], entry.from?.[0]]
+        : [entry.from?.[0], entry.from?.[1]];
     row.append(
-        captioned(from, t(byRole ? "card.label.equip" : "card.label.input")),
+        captioned(
+            from,
+            t(byRole ? "card.label.equip" : "card.label.input"),
+            undefined,
+            slotTag(sent, fromRef)
+        ),
         arrow(),
-        captioned(to, t(byRole ? "card.label.monster" : "card.label.input"))
+        captioned(to, t(byRole ? "card.label.monster" : "card.label.input"), undefined, slotTag(sent, toRef))
     );
     return row;
 }
 
-export function renderRitualRow(entry: RitualExpanded): HTMLElement {
+export function renderRitualRow(entry: RitualExpanded, sent: SentBoard | null = null): HTMLElement {
     const row = element(
         "div",
         "ritual-entry flex flex-wrap items-start gap-3 py-3 border-t-2 border-wb-rule first:border-t-0 first:pt-0"
     );
-    row.appendChild(captioned(entry.ritualCard, t("card.label.ritual")));
-    for (const material of entry.materials) row.appendChild(captioned(material, t("card.label.material")));
+    row.appendChild(
+        captioned(entry.ritualCard, t("card.label.ritual"), undefined, slotTag(sent, entry.from?.ritualCard))
+    );
+    entry.materials.forEach((material, i) => {
+        const tag = slotTag(sent, entry.from?.materials[i]);
+        row.appendChild(captioned(material, t("card.label.material"), undefined, tag));
+    });
     const to = arrow();
     to.classList.add("self-center");
     row.appendChild(to);

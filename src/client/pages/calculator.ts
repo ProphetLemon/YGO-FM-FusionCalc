@@ -263,7 +263,7 @@ function mountCalculatorPage(): void {
         if (boardCount.textContent !== total) boardCount.textContent = total;
     };
 
-    const renderResults = (result: CalculatorResponse): void => {
+    const renderResults = (result: CalculatorResponse, sent: SentBoard): void => {
         // The server sorts fusions by the ATK of what they make; each kind keeps that order.
         const monsters = result.fusions.filter((fusion) => fusion.result.isMonster);
         const others = result.fusions.filter((fusion) => !fusion.result.isMonster);
@@ -274,6 +274,7 @@ function mountCalculatorPage(): void {
                     highlightFirst: true,
                     label: t("search.results.fusions"),
                     onApply: applyFusion,
+                    sent,
                 })
             );
         } else {
@@ -283,10 +284,10 @@ function mountCalculatorPage(): void {
                     : "calculator.results.no-monster-fusions";
             appendNone(outputLeft, t(key));
         }
-        showOtherResults(outputOther, others, applyFusion);
-        for (const equip of result.equips) outputRight.appendChild(renderEquipRow(equip));
+        showOtherResults(outputOther, others, applyFusion, sent);
+        for (const equip of result.equips) outputRight.appendChild(renderEquipRow(equip, sent));
         if (result.equips.length === 0) appendNone(outputRight, t("calculator.results.no-equips"));
-        showRituals(outputRituals, result.rituals);
+        showRituals(outputRituals, result.rituals, sent);
         resultsHint.hidden = true;
         resultsPanels.hidden = false;
     };
@@ -322,7 +323,7 @@ function mountCalculatorPage(): void {
             if (res.chains.length === 0) chainOutput.append(t("calculator.chain.no-result"));
             else {
                 chainOutput.appendChild(
-                    renderChains(res.chains, bestSingleFusion(calculated), sent.request.handIds)
+                    renderChains(res.chains, bestSingleFusion(calculated), sent.request.handIds, sent)
                 );
             }
             chainBtn.classList.add("hidden");
@@ -367,7 +368,7 @@ function mountCalculatorPage(): void {
         }
         if (!run.isCurrent()) return;
         setStatus(null);
-        renderResults(result);
+        renderResults(result, sent);
     };
 
     const loadIndex = async (): Promise<void> => {
@@ -837,7 +838,8 @@ function hideBlock(where: HTMLElement): void {
 function showOtherResults(
     where: HTMLElement,
     fusions: readonly FusionExpanded[],
-    onApply: (fusion: FusionExpanded) => void
+    onApply: (fusion: FusionExpanded) => void,
+    sent: SentBoard
 ): void {
     if (fusions.length === 0) return;
     const title = document.createElement("h3");
@@ -849,13 +851,14 @@ function showOtherResults(
             highlightFirst: false,
             label: t("calculator.results.non-monster"),
             onApply,
+            sent,
         })
     );
     where.classList.remove("hidden");
 }
 
 // The panel stays on screen whatever the board: with no ritual it says what a ritual needs.
-function showRituals(where: HTMLElement, rituals: readonly RitualExpanded[]): void {
+function showRituals(where: HTMLElement, rituals: readonly RitualExpanded[], sent: SentBoard): void {
     if (rituals.length === 0) {
         const none = document.createElement("p");
         none.className = "m-0";
@@ -863,5 +866,5 @@ function showRituals(where: HTMLElement, rituals: readonly RitualExpanded[]): vo
         where.appendChild(none);
         return;
     }
-    for (const ritual of rituals) where.appendChild(renderRitualRow(ritual));
+    for (const ritual of rituals) where.appendChild(renderRitualRow(ritual, sent));
 }

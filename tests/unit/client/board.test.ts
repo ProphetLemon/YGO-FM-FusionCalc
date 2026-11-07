@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
     BOARD_SIZE,
     ZONES,
+    boardPosition,
     buildBoardRequest,
     emptyZones,
+    fieldPosition,
     fitsZone,
     planFusion,
     slotOfRef,
@@ -132,6 +134,49 @@ describe("slotOfRef", () => {
     it("gives null for an index nothing was sent at", () => {
         expect(slotOfRef(sent, { zone: "hand", index: 2 })).toBeNull();
         expect(slotOfRef(sent, { zone: "spell", index: 0 })).toBeNull();
+    });
+});
+
+describe("the board position shown on a result tag", () => {
+    // Slots 1 and 3 of the hand are filled (a monster and a non-monster both fit it) and so is slot 4 of the
+    // spell zone, so the arrays sent hold fewer cards than the board has slots in front of them.
+    const sent = buildBoardRequest(
+        board({
+            hand: [null, monster(2), null, spell(7), null],
+            monster: [null, null, monster(3), null, monster(4)],
+            spell: [null, null, null, spell(8), null],
+        })
+    );
+
+    it("counts the slots from 1 and skips none of them, empty or not", () => {
+        // The array sent has the card at index 0, but it stands in the second slot.
+        expect(boardPosition(sent, { zone: "hand", index: 0 })).toBe(2);
+        expect(boardPosition(sent, { zone: "hand", index: 1 })).toBe(4);
+        expect(boardPosition(sent, { zone: "monster", index: 0 })).toBe(3);
+        expect(boardPosition(sent, { zone: "monster", index: 1 })).toBe(5);
+        expect(boardPosition(sent, { zone: "spell", index: 0 })).toBe(4);
+    });
+
+    it("is null for a reference that points at nothing sent", () => {
+        expect(boardPosition(sent, { zone: "hand", index: 2 })).toBeNull();
+        expect(boardPosition(sent, { zone: "spell", index: 1 })).toBeNull();
+    });
+
+    it("places the field monster of a chain by its index in the monster array sent", () => {
+        expect(fieldPosition(sent, 0)).toBe(3);
+        expect(fieldPosition(sent, 1)).toBe(5);
+        expect(fieldPosition(sent, 2)).toBeNull();
+    });
+
+    it("keeps a card that is sent in the first slot at position 1", () => {
+        const first = buildBoardRequest(board({ monster: [monster(1), null, null, null, null] }));
+        expect(fieldPosition(first, 0)).toBe(1);
+    });
+
+    it("ignores a card that does not fit its zone when counting indexes, not when counting positions", () => {
+        // A monster in the spell zone is not sent: the spell card after it is index 0 but position 3.
+        const typed = buildBoardRequest(board({ spell: [monster(9), null, spell(5), null, null] }));
+        expect(boardPosition(typed, { zone: "spell", index: 0 })).toBe(3);
     });
 });
 
