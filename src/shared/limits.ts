@@ -1,6 +1,9 @@
 // Largest hand the calculator and the chain search accept; shared so the client can cap "Add card" at it.
 export const MAX_HAND_SIZE = 12;
 
+// Cards each board zone holds: on the board the hand, the monster zone and the spell/trap zone have 5 slots each.
+export const ZONE_SIZE = 5;
+
 // Cards in a deck. The game fixes it at 40.
 export const DECK_SIZE = 40;
 

@@ -4,10 +4,12 @@ import {
     DECK_SIZE,
     MAX_HAND_SIZE,
     MAX_TRUNK_COUNT,
+    ZONE_SIZE,
     MAX_COPIES_PER_CARD,
     copyLimit,
 } from "../../../shared/limits.js";
 import type { DeckLock, DeckOptimizeRequest, DeckTrunkEntry } from "../../../shared/types.js";
+import { findBoardChains, findBoardCombinations, type BoardInput } from "../../domain/board.js";
 import { findCombinations } from "../../domain/calculator.js";
 import { findBestChains } from "../../domain/chain-search.js";
 import { getEquipsFor } from "../../domain/equips.js";
@@ -72,6 +74,59 @@ function readHandIds(req: Request, res: Response): number[] | null {
         return null;
     }
     return handIds;
+}
+
+// Board mode starts when the body names a zone; without one the request is the plain hand of before.
+function isBoardRequest(req: Request): boolean {
+    return isRecord(req.body) && ("monsterIds" in req.body || "spellIds" in req.body);
+}
+
+// A zone left out is empty. Sends the 400 itself and returns null when the board cannot be used.
+function readBoard(req: Request, res: Response): BoardInput | null {
+    const body: Record<string, unknown> = isRecord(req.body) ? req.body : {};
+    const handIds = body.handIds;
+    const monsterIds = body.monsterIds ?? [];
+    const spellIds = body.spellIds ?? [];
+    for (const [name, ids] of [
+        ["handIds", handIds],
+        ["monsterIds", monsterIds],
+        ["spellIds", spellIds],
+    ] as const) {
+        if (!isHand(ids)) {
+            sendError(res, 400, {
+                code: "invalid-hand",
+                message: `${name} must be an array of positive integers`,
+            });
+            return null;
+        }
+        if (ids.length > ZONE_SIZE) {
+            sendError(res, 400, {
+                code: "board-too-large",
+                message: `${name} must not exceed ${ZONE_SIZE} cards`,
+            });
+            return null;
+        }
+    }
+    if (!isHand(handIds) || !isHand(monsterIds) || !isHand(spellIds)) return null;
+    if (monsterIds.some((id) => isKnownNonMonster(id))) {
+        sendError(res, 400, { code: "invalid-zones", message: "monsterIds must hold only monsters" });
+        return null;
+    }
+    if (spellIds.some((id) => isKnownMonster(id))) {
+        sendError(res, 400, { code: "invalid-zones", message: "spellIds must not hold monsters" });
+        return null;
+    }
+    return { handIds, monsterIds, spellIds };
+}
+
+function isKnownMonster(id: number): boolean {
+    const card = getCardById(id);
+    return card !== undefined && isMonster(card);
+}
+
+function isKnownNonMonster(id: number): boolean {
+    const card = getCardById(id);
+    return card !== undefined && !isMonster(card);
 }
 
 function isCardId(value: unknown): value is number {
@@ -326,6 +381,11 @@ export function apiRouter({ deckOptimizer = createDeckOptimizerService() }: ApiD
     });
 
     router.post("/calculator", (req: Request, res: Response): void => {
+        if (isBoardRequest(req)) {
+            const board = readBoard(req, res);
+            if (board !== null) res.json(findBoardCombinations(board));
+            return;
+        }
         const handIds = readHandIds(req, res);
         if (handIds === null) return;
         const out = findCombinations({ handIds });
@@ -333,6 +393,11 @@ export function apiRouter({ deckOptimizer = createDeckOptimizerService() }: ApiD
     });
 
     router.post("/chain-search", (req: Request, res: Response): void => {
+        if (isBoardRequest(req)) {
+            const board = readBoard(req, res);
+            if (board !== null) res.json(findBoardChains(board));
+            return;
+        }
         const handIds = readHandIds(req, res);
         if (handIds === null) return;
         const { chains, truncated } = findBestChains(handIds);

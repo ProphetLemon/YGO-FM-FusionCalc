@@ -14,6 +14,10 @@ export function findRituals(
         const ritual = expand(recipe);
         if (ritual) rituals.push(ritual);
     }
+    return sortRituals(rituals);
+}
+
+export function sortRituals(rituals: RitualExpanded[]): RitualExpanded[] {
     return rituals.sort((a, b) => b.result.attack - a.result.attack || a.result.id - b.result.id);
 }
 
@@ -32,7 +36,7 @@ function isComplete(recipe: RitualData, inHand: ReadonlyMap<number, number>): bo
 }
 
 // Null when the store lacks one of the recipe cards, like the other domain functions skip unknown ids.
-function expand(recipe: RitualData): RitualExpanded | null {
+export function expand(recipe: RitualData): RitualExpanded | null {
     const ritualCard = getCardById(recipe.RitualCard);
     const result = getCardById(recipe.Result);
     if (!ritualCard || !result) return null;

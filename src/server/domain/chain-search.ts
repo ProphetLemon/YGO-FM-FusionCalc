@@ -8,7 +8,7 @@ export const MAX_CHAIN_HAND = MAX_HAND_SIZE;
 // Hand states the search may discover before it stops and reports `truncated`. Random hands need a few
 // thousand at most; 50k caps the densest 12-card hands at roughly 0.2-0.3 s (measured with the full data).
 export const MAX_CHAIN_STATES = 50_000;
-const TOP_N = 5;
+export const TOP_N = 5;
 
 interface RawStep {
     previous: RawStep | null;
@@ -25,13 +25,13 @@ interface SearchState {
     last: RawStep | null;
 }
 
-interface Candidate {
+export interface Candidate {
     last: RawStep;
     steps: number;
     attack: number;
 }
 
-interface Exploration {
+export interface Exploration {
     candidates: Map<number, Candidate>;
     truncated: boolean;
 }
@@ -44,15 +44,22 @@ export function findBestChains(
     const hand = handIds.filter((id) => getCardById(id) !== undefined);
     const { candidates, truncated } = exploreHandStates(hand, maxStates);
 
-    const chains = [...candidates.values()]
-        .sort((a, b) => b.attack - a.attack || a.steps - b.steps || a.last.result - b.last.result)
-        .slice(0, TOP_N)
-        .map(toChainResult);
+    const chains = [...candidates.values()].sort(compareCandidates).slice(0, TOP_N).map(toChainResult);
     return { chains, truncated };
 }
 
-// Breadth-first, so the first chain that produces a card is also the shortest one.
-function exploreHandStates(initialHand: number[], maxStates: number): Exploration {
+export function compareCandidates(a: Candidate, b: Candidate): number {
+    return b.attack - a.attack || a.steps - b.steps || a.last.result - b.last.result;
+}
+
+// Breadth-first, so the first chain that produces a card is also the shortest one. With `fieldStart`, the
+// first card of `initialHand` is a monster on the field: the first fusion must use it as card1, and the
+// fusions after that are free, like in a hand-only search.
+export function exploreHandStates(
+    initialHand: number[],
+    maxStates: number,
+    fieldStart: boolean = false
+): Exploration {
     const initialSorted = [...initialHand].sort((a, b) => a - b);
     const visited = new Set<string>([initialSorted.join(",")]);
     const candidates = new Map<number, Candidate>();
@@ -61,7 +68,8 @@ function exploreHandStates(initialHand: number[], maxStates: number): Exploratio
     for (let steps = 1; frontier.length > 0; steps++) {
         const next: SearchState[] = [];
         for (const { hand, sorted, last } of frontier) {
-            for (let i = 0; i < hand.length - 1; i++) {
+            const lastFirstCard = fieldStart && steps === 1 ? 0 : hand.length - 2;
+            for (let i = 0; i <= lastFirstCard; i++) {
                 for (let j = i + 1; j < hand.length; j++) {
                     const card1 = hand[i];
                     const card2 = hand[j];
@@ -121,7 +129,7 @@ function fuseSorted(sorted: readonly number[], card1: number, card2: number, res
     return fused;
 }
 
-function toChainResult(candidate: Candidate): ChainResult {
+export function toChainResult(candidate: Candidate): ChainResult {
     const steps: FusionStep[] = [];
     for (let step: RawStep | null = candidate.last; step !== null; step = step.previous) {
         steps.push({

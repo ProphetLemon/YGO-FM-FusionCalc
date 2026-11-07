@@ -65,10 +65,20 @@ export type CardIndexEntry = Pick<
     "id" | "name" | "type" | "typeName" | "attack" | "defense" | "imageCode" | "isMonster"
 >;
 
+export type BoardZone = "hand" | "monster" | "spell";
+
+// Where a card sits on the board: its position in the array the client sent for that zone, unknown ids included.
+export interface SlotRef {
+    zone: BoardZone;
+    index: number;
+}
+
 export interface FusionExpanded {
     card1: CardSummary;
     card2: CardSummary;
     result: CardSummary;
+    // Slots of card1 and card2. Present only in board mode.
+    from?: [SlotRef, SlotRef];
 }
 
 export interface ResultExpanded {
@@ -79,12 +89,16 @@ export interface ResultExpanded {
 export interface EquipExpanded {
     card1: CardSummary;
     card2: CardSummary;
+    // Slots of card1 (the Equip card) and card2 (the monster it targets). Present only in board mode.
+    from?: [SlotRef, SlotRef];
 }
 
 export interface RitualExpanded {
     ritualCard: CardSummary;
     materials: CardSummary[];
     result: CardSummary;
+    // Slots of the ritual card and of each material, in recipe order. Present only in board mode.
+    from?: { ritualCard: SlotRef; materials: SlotRef[] };
 }
 
 export interface CalculatorResponse {
@@ -102,6 +116,8 @@ export interface FusionStep {
 export interface ChainResult {
     steps: FusionStep[];
     finalCard: CardSummary;
+    // Index in monsterIds of the field monster that is card1 of the first step. Present only when the chain starts there.
+    fieldIndex?: number;
 }
 
 export interface ChainSearchResponse {
