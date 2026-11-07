@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { terrainAttack } from "../../src/shared/terrains.js";
 
 // Every save here is built in the test from bytes: a real save belongs to a player and holds a name.
 const BLOCK = 0x2000;
@@ -100,6 +101,7 @@ async function chooseFile(page: Page, file = saveFile()): Promise<void> {
     await expect(page.locator("#deck-collection")).toBeVisible();
 }
 
+const terrainSelect = (page: Page) => page.getByLabel("Terreno");
 const compute = (page: Page) => page.getByRole("button", { name: "Calcular el mejor mazo" });
 // The 40 tiles of the deck before computing, each a lock toggle with a forbid toggle beside it.
 const tiles = (page: Page) => page.locator('#deck-lock-grid button[data-action="lock"]');
@@ -394,6 +396,33 @@ test.describe("with the real optimiser", () => {
         const { status, body } = await computeStatus(page);
         expect(status).toBe(200);
         expect(body.forbidden).toEqual([]);
+    });
+
+    test("a terrain is sent, named in the result, and the finals show the ATK on that terrain", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        await terrainSelect(page).selectOption("umi");
+
+        const requestSent = page.waitForRequest("**/api/deck/optimize");
+        const responded = page.waitForResponse("**/api/deck/optimize");
+        await compute(page).click();
+        expect(bodyOf(await requestSent).terrain).toBe("umi");
+        const answerBody = (await (await responded).json()) as {
+            topFinals: Array<{ card: { name: string; attack: number; type: number } }>;
+        };
+        await expect(page.locator("#deck-results")).toBeVisible({ timeout: 15_000 });
+
+        await expect(page.locator("#deck-result-title").locator("..").locator("..")).toContainText(
+            "Puntuado con el terreno Umi."
+        );
+        expect(answerBody.topFinals.length).toBeGreaterThan(0);
+        const lines = page.locator("#deck-finals-title").locator("../..").locator("[data-atk]");
+        await expect(lines).toHaveCount(answerBody.topFinals.length);
+        for (const [index, final] of answerBody.topFinals.entries()) {
+            const expected = terrainAttack(final.card.attack, final.card.type, "umi");
+            await expect(lines.nth(index)).toHaveAttribute("data-atk", String(expected));
+        }
     });
 });
 
@@ -1584,5 +1613,208 @@ test.describe("layout and keyboard", () => {
         const link = page.locator('#primary-navigation a[aria-current="page"]');
         await expect(link).toHaveText("Mejor mazo");
         await expect(link).toHaveAttribute("href", "/deck");
+    });
+});
+
+test.describe("the field terrain", () => {
+    // Dragons in the mock answer print 1000 ATK; Machine is weakened on Umi and prints 300 here.
+    const machine = (id: number): Record<string, unknown> => ({
+        ...card(id),
+        type: 14,
+        typeName: "Machine",
+        attack: 300,
+    });
+    const withFinals = (...finals: Array<Record<string, unknown>>): Record<string, unknown> =>
+        answer({ topFinals: finals.map((c) => ({ card: c, share: 0.2 })) });
+
+    test("a select with a visible label starts on no terrain and lists the six terrains in game order", async ({
+        page,
+    }) => {
+        await chooseFile(page);
+        const select = terrainSelect(page);
+        await expect(select).toHaveValue("");
+        await expect(select.locator("option")).toHaveText([
+            "Sin terreno",
+            "Forest: santuario del bosque",
+            "Wasteland: santuario del desierto",
+            "Mountain: santuario de la montaña",
+            "Sogen: santuario de la pradera",
+            "Umi: santuario del mar",
+            "Yami: Guardianes Sebek y Neku",
+        ]);
+        await expect(page.locator("label[for='deck-terrain']")).toBeVisible();
+        await expect(select).toHaveAttribute("aria-describedby", "deck-terrain-hint");
+        await expect(page.locator("#deck-terrain-hint")).toHaveText(
+            "Sin terreno, los mazos se puntúan con el ATK impreso de las cartas."
+        );
+    });
+
+    test("the hint lists the Types the chosen terrain boosts and weakens", async ({ page }) => {
+        await chooseFile(page);
+        const hint = page.locator("#deck-terrain-hint");
+
+        await terrainSelect(page).selectOption("umi");
+        await expect(hint).toContainText(
+            "Suma 500 de ATK a los monstruos de tipo Fish, Sea Serpent, Thunder y Aqua."
+        );
+        await expect(hint).toContainText("Resta 500 de ATK a los de tipo Machine y Pyro.");
+        await expect(hint).toContainText("Lo juegan: Ocean Mage, High Mage Secmeton.");
+
+        // A terrain that weakens nothing says nothing about weakening.
+        await terrainSelect(page).selectOption("sogen");
+        await expect(hint).toContainText("Warrior y Beast-Warrior");
+        await expect(hint).not.toContainText("Resta");
+
+        await terrainSelect(page).selectOption("");
+        await expect(hint).toContainText("ATK impreso");
+    });
+
+    test("the select comes right before the compute button in the keyboard order", async ({ page }) => {
+        await chooseFile(page);
+        await terrainSelect(page).focus();
+        await page.keyboard.press("Tab");
+        await expect(compute(page)).toBeFocused();
+    });
+
+    test("the request has no terrain key until one is chosen, then carries it", async ({ page }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+
+        const first = page.waitForRequest("**/api/deck/optimize");
+        await compute(page).click();
+        expect(Object.keys(bodyOf(await first)).sort()).toEqual([
+            "deck",
+            "forbidden",
+            "keepNonMonsters",
+            "locked",
+            "trunk",
+        ]);
+        await expect(page.locator("#deck-results")).toBeVisible();
+
+        await terrainSelect(page).selectOption("yami");
+        const second = page.waitForRequest("**/api/deck/optimize");
+        await compute(page).click();
+        expect(bodyOf(await second).terrain).toBe("yami");
+        await expect(page.locator("#deck-results")).toBeVisible();
+
+        // Back to none: the key goes away again.
+        await terrainSelect(page).selectOption("");
+        const third = page.waitForRequest("**/api/deck/optimize");
+        await compute(page).click();
+        expect("terrain" in bodyOf(await third)).toBe(false);
+    });
+
+    test("changing the terrain discards a shown answer", async ({ page }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toBeVisible();
+
+        await terrainSelect(page).selectOption("forest");
+
+        await expect(page.locator("#deck-results")).toBeHidden();
+        await expect(page.locator("#deck-results-hint")).toBeVisible();
+    });
+
+    test("the result names the terrain it was scored with, and says nothing without one", async ({
+        page,
+    }) => {
+        await mockOptimizer(page);
+        await chooseFile(page);
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toBeVisible();
+        await expect(page.locator("#deck-results")).not.toContainText("terreno");
+
+        await terrainSelect(page).selectOption("mountain");
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toContainText("Puntuado con el terreno Mountain.");
+    });
+
+    test("the finals show the ATK on the terrain, never below 0, and the printed one without a terrain", async ({
+        page,
+    }) => {
+        await mockOptimizer(page, withFinals(card(380), machine(364)));
+        await chooseFile(page);
+        const finals = (): ReturnType<Page["locator"]> =>
+            page.locator("#deck-finals-title").locator("../..");
+
+        await compute(page).click();
+        await expect(finals()).toContainText("ATK 1000");
+        await expect(finals()).not.toContainText("impreso");
+
+        await terrainSelect(page).selectOption("umi");
+        await compute(page).click();
+        // Dragon is untouched on Umi; Machine loses 500 and stops at 0.
+        await expect(finals().locator("[data-atk]").nth(0)).toHaveText("ATK 1000");
+        await expect(finals().locator("[data-atk]").nth(1)).toHaveText("ATK 0 (impreso: 300)");
+
+        await terrainSelect(page).selectOption("mountain");
+        await compute(page).click();
+        await expect(finals().locator("[data-atk]").nth(0)).toHaveText("ATK 1500 (impreso: 1000)");
+    });
+
+    test("the lock grid and the spare cards keep the printed ATK on a terrain", async ({ page }) => {
+        await chooseFile(page);
+        const before = await page.locator("#deck-lock-grid").innerText();
+        await openTrunk(page);
+        const spareBefore = await page.locator("#deck-trunk-list").innerText();
+
+        await terrainSelect(page).selectOption("mountain");
+
+        expect(await page.locator("#deck-lock-grid").innerText()).toBe(before);
+        expect(await page.locator("#deck-trunk-list").innerText()).toBe(spareBefore);
+    });
+
+    test("the verdict wording ignores the terrain", async ({ page }) => {
+        await mockOptimizer(page, answer({ certified: true }));
+        await chooseFile(page);
+        const verdict = page.locator("#deck-result-title").locator("..").locator("..").locator("p").first();
+
+        await compute(page).click();
+        await expect(verdict).toBeVisible();
+        const without = await verdict.innerText();
+
+        await terrainSelect(page).selectOption("umi");
+        await compute(page).click();
+        await expect(page.locator("#deck-results")).toContainText("Puntuado con el terreno Umi.");
+        await expect(verdict).toHaveText(without);
+    });
+
+    test("the control fits at 375 px without scrolling the page sideways", async ({ page }) => {
+        await page.setViewportSize({ width: 375, height: 800 });
+        await chooseFile(page);
+        await terrainSelect(page).selectOption("yami");
+        await expect(terrainSelect(page)).toBeVisible();
+
+        const box = (await terrainSelect(page).boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(375);
+        const overflow = await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+        );
+        expect(overflow).toBeLessThanOrEqual(0);
+    });
+});
+
+test.describe("the field terrain in English", () => {
+    test.use({ locale: "en-US", extraHTTPHeaders: { "accept-language": "en-US,en;q=0.9" } });
+
+    test("the control and its options are in English", async ({ page }) => {
+        await page.getByLabel("Save file").setInputFiles(saveFile());
+        await expect(page.locator("#deck-collection")).toBeVisible();
+        const select = page.getByLabel("Field terrain");
+        await expect(select.locator("option")).toHaveText([
+            "No terrain",
+            "Forest: Forest Shrine",
+            "Wasteland: Desert Shrine",
+            "Mountain: Mountain Shrine",
+            "Sogen: Meadow Shrine",
+            "Umi: Sea Shrine",
+            "Yami: Guardians Sebek and Neku",
+        ]);
+        await select.selectOption("umi");
+        await expect(page.locator("#deck-terrain-hint")).toContainText(
+            "Adds 500 ATK to monsters of the types Fish, Sea Serpent, Thunder, and Aqua."
+        );
     });
 });

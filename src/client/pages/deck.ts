@@ -1,6 +1,7 @@
 import { Autocomplete } from "../components/autocomplete.js";
 import { mountNavbar } from "../components/navbar.js";
 import { renderDeckResults } from "../components/deck-results.js";
+import { fillTerrainOptions, readTerrain, terrainHintText } from "../components/terrain-control.js";
 import {
     createLockGrid,
     renderAddedList,
@@ -37,6 +38,7 @@ import {
 } from "../lib/deck-view.js";
 import { clear, qs } from "../lib/dom.js";
 import { MAX_SAVE_FILE_BYTES, type FmSave } from "../lib/fm-save.js";
+import type { TerrainId } from "../../shared/terrains.js";
 import { getLang, t } from "../lib/i18n.js";
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -66,6 +68,8 @@ function mountDeckPage(): void {
     const manualInput = qs<HTMLInputElement>("#deck-manual-input");
     const manualAdd = qs<HTMLButtonElement>("#deck-manual-add");
     const manualMsg = qs<HTMLElement>("#deck-manual-msg");
+    const terrainSelect = qs<HTMLSelectElement>("#deck-terrain");
+    const terrainHint = qs<HTMLElement>("#deck-terrain-hint");
     const computeBtn = qs<HTMLButtonElement>("#deck-compute");
     const computeMsg = qs<HTMLElement>("#deck-compute-msg");
     const status = qs<HTMLElement>("#deck-status");
@@ -95,6 +99,8 @@ function mountDeckPage(): void {
         !manualInput ||
         !manualAdd ||
         !manualMsg ||
+        !terrainSelect ||
+        !terrainHint ||
         !computeBtn ||
         !computeMsg ||
         !status ||
@@ -115,8 +121,16 @@ function mountDeckPage(): void {
     let lockGrid: LockGrid | null = null;
     let spareList: SpareList | null = null;
     // The request in flight, if any, and the timer of a "busy" countdown, if one is running.
+    // The field terrain the decks are scored on; null is the printed ATK. Not saved anywhere.
+    let terrain: TerrainId | null = null;
     let running: AbortController | null = null;
     let countdown: number | null = null;
+
+    const renderTerrainHint = (): void => {
+        terrainHint.textContent = terrainHintText(terrain);
+    };
+    fillTerrainOptions(terrainSelect);
+    renderTerrainHint();
 
     const announce = (message: string): void => {
         status.textContent = message;
@@ -458,7 +472,7 @@ function mountDeckPage(): void {
 
         const controller = new AbortController();
         running = controller;
-        const request = buildDeckRequest(owned, rules);
+        const request = buildDeckRequest(owned, rules, terrain);
         // Read from what is sent, so the sentence in the results is true of this answer.
         const withManualCopies = manual.size > 0;
         try {
@@ -470,6 +484,7 @@ function mountDeckPage(): void {
                 added: addedCards(rules),
                 hasRules: request.locked!.length > 0 || request.forbidden!.length > 0,
                 withManualCards: withManualCopies,
+                terrain: request.terrain ?? null,
             });
             results.appendChild(view.element);
             loading.hidden = true;
@@ -502,6 +517,13 @@ function mountDeckPage(): void {
             }
         }
     };
+
+    // A new terrain changes every number of the answer on screen, so the answer goes like it does with a new rule.
+    terrainSelect.addEventListener("change", () => {
+        terrain = readTerrain(terrainSelect);
+        renderTerrainHint();
+        discardAnswer();
+    });
 
     computeBtn.addEventListener("click", () => {
         // aria-disabled keeps the button focusable while a calculation runs, so the click is ignored here.

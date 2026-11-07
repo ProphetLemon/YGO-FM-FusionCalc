@@ -6,6 +6,7 @@ import {
     addedCards,
     buildDeckRequest,
     canAdd,
+    atkOnTerrain,
     canAddByHand,
     classifyDeckFailure,
     copiesOwned,
@@ -25,6 +26,7 @@ import {
     spareRows,
     statRows,
     summarizeSave,
+    terrainTypes,
     toggleForbid,
     toggleLock,
     verdictOf,
@@ -34,6 +36,7 @@ import {
     type ManualCards,
 } from "../../../src/client/lib/deck-view.js";
 import { MAX_SAVE_FILE_BYTES, type FmSave } from "../../../src/client/lib/fm-save.js";
+import { TERRAIN_IDS } from "../../../src/shared/terrains.js";
 import type { CardIndexEntry, DeckStats } from "../../../src/shared/types.js";
 
 const SAVE: FmSave = {
@@ -162,6 +165,15 @@ describe("buildDeckRequest", () => {
         const request = buildDeckRequest(SAVE, NO_RULES);
         expect(request.locked).toEqual([]);
         expect(request.forbidden).toEqual([]);
+    });
+
+    it("adds the terrain key only when a terrain is chosen", () => {
+        expect("terrain" in buildDeckRequest(SAVE, NO_RULES)).toBe(false);
+        expect("terrain" in buildDeckRequest(SAVE, NO_RULES, null)).toBe(false);
+        expect(buildDeckRequest(SAVE, NO_RULES, "umi").terrain).toBe("umi");
+        expect({ ...buildDeckRequest(SAVE, NO_RULES, "yami"), terrain: undefined }).toEqual(
+            buildDeckRequest(SAVE, NO_RULES)
+        );
     });
 
     it("copies the arrays, so the save cannot change under a request", () => {
@@ -918,5 +930,56 @@ describe("cards added by hand", () => {
                 [100, 2, 1],
             ]);
         });
+    });
+});
+
+describe("terrainTypes", () => {
+    it("names the boosted and weakened Types of Umi and who plays it", () => {
+        expect(terrainTypes("umi")).toEqual({
+            boosted: ["Fish", "Sea Serpent", "Thunder", "Aqua"],
+            weakened: ["Machine", "Pyro"],
+            duelists: ["Ocean Mage", "High Mage Secmeton"],
+        });
+    });
+
+    it("names the Types of Yami, with Fairy weakened", () => {
+        const yami = terrainTypes("yami");
+        expect(yami.boosted).toEqual(["Fiend", "Spellcaster"]);
+        expect(yami.weakened).toEqual(["Fairy"]);
+        expect(yami.duelists).toEqual(["Guardian Sebek", "Guardian Neku"]);
+    });
+
+    it("gives every terrain at least one boosted Type and one duelist, and a name to each Type", () => {
+        for (const id of TERRAIN_IDS) {
+            const { boosted, weakened, duelists } = terrainTypes(id);
+            expect(boosted.length).toBeGreaterThan(0);
+            expect(duelists.length).toBeGreaterThan(0);
+            for (const name of [...boosted, ...weakened]) expect(name).toMatch(/^[A-Za-z-]+( [A-Za-z]+)?$/);
+        }
+    });
+});
+
+describe("atkOnTerrain", () => {
+    const AQUA = 16;
+    const MACHINE = 14;
+    const MAGIC = 20;
+
+    it("keeps the printed ATK without a terrain", () => {
+        expect(atkOnTerrain({ attack: 1800, type: AQUA }, null)).toBe(1800);
+    });
+
+    it("adds 500 to a boosted Type and takes 500 from a weakened one", () => {
+        expect(atkOnTerrain({ attack: 1800, type: AQUA }, "umi")).toBe(2300);
+        expect(atkOnTerrain({ attack: 1800, type: MACHINE }, "umi")).toBe(1300);
+    });
+
+    it("never goes below 0 or above 9999", () => {
+        expect(atkOnTerrain({ attack: 300, type: MACHINE }, "umi")).toBe(0);
+        expect(atkOnTerrain({ attack: 9800, type: AQUA }, "umi")).toBe(9999);
+    });
+
+    it("leaves a Type the terrain does not touch, and a card that is not a monster", () => {
+        expect(atkOnTerrain({ attack: 1800, type: AQUA }, "forest")).toBe(1800);
+        expect(atkOnTerrain({ attack: 0, type: MAGIC }, "umi")).toBe(0);
     });
 });

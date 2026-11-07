@@ -1,5 +1,7 @@
 import type { CardSummary, DeckFinal, DeckLock, DeckOptimizeResponse } from "../../shared/types.js";
+import type { TerrainId } from "../../shared/terrains.js";
 import {
+    atkOnTerrain,
     formatNumber,
     lowersAverage,
     markAddedSlots,
@@ -23,6 +25,8 @@ export interface DeckResultsContext {
     hasRules: boolean;
     // Whether the request carried copies the player added by hand, which the answer counts as owned cards.
     withManualCards: boolean;
+    // The terrain the request carried, which the answer was scored with: null for the printed ATK.
+    terrain: TerrainId | null;
 }
 
 export interface DeckResults {
@@ -88,6 +92,13 @@ function renderVerdict(answer: DeckOptimizeResponse, context: DeckResultsContext
     body.appendChild(el("p", "m-0 font-bold", t(`deck.verdict.${verdict.claim}`)));
     // "With your cards" would otherwise overstate what the save holds.
     if (context.withManualCards) body.appendChild(el("p", "m-0 mt-2", t("deck.results.manual")));
+    // The terrain changes the numbers below, so the answer says which one it was scored with.
+    if (context.terrain !== null) {
+        const name = t(`deck.terrain.name.${context.terrain}`);
+        const line = el("p", "m-0 mt-2", t("deck.results.terrain", { name }));
+        line.dataset.terrain = context.terrain;
+        body.appendChild(line);
+    }
     if (loses) body.appendChild(el("p", "m-0 mt-2 font-bold text-wb-red", t("deck.verdict.loss")));
     if (verdict.noSwaps) {
         const key = verdict.claim.startsWith("certified")
@@ -217,7 +228,7 @@ function renderSwaps(answer: DeckOptimizeResponse): HTMLElement {
     return section;
 }
 
-function renderFinals(finals: readonly DeckFinal[]): HTMLElement {
+function renderFinals(finals: readonly DeckFinal[], terrain: TerrainId | null): HTMLElement {
     const locale = getLang();
     const { section, body } = panel("win-bar-pink", t("deck.finals.title"), "deck-finals-title");
     body.appendChild(el("p", "m-0 mb-3 text-sm text-wb-mute", t("deck.finals.intro")));
@@ -229,6 +240,18 @@ function renderFinals(finals: readonly DeckFinal[]): HTMLElement {
         item.appendChild(createCardTile(final.card, { size: "xs" }));
         const text = el("div", "min-w-0 flex-1");
         text.appendChild(el("div", "font-bold [overflow-wrap:anywhere]", final.card.name));
+        if (final.card.isMonster) {
+            const printed = final.card.attack;
+            const attack = atkOnTerrain(final.card, terrain);
+            // Only when the terrain moved it does the line also say what the card prints.
+            const atkText =
+                attack === printed
+                    ? t("deck.trunk.atk", { value: attack })
+                    : t("deck.finals.atk-terrain", { value: attack, printed });
+            const atkLine = el("div", "text-sm", atkText);
+            atkLine.dataset.atk = String(attack);
+            text.appendChild(atkLine);
+        }
         const percent = `${formatNumber(final.share * 100, locale)}%`;
         text.appendChild(el("div", "text-sm", t("deck.finals.share", { pct: percent })));
         const track = el("div", "sink h-3 mt-1");
@@ -296,7 +319,7 @@ export function renderDeckResults(answer: DeckOptimizeResponse, context: DeckRes
     root.appendChild(verdict.element);
     root.appendChild(renderStats(answer));
     if (answer.swaps.length > 0) root.appendChild(renderSwaps(answer));
-    if (answer.topFinals.length > 0) root.appendChild(renderFinals(answer.topFinals));
+    if (answer.topFinals.length > 0) root.appendChild(renderFinals(answer.topFinals, context.terrain));
     root.appendChild(renderDeck(answer, context));
     return { element: root, heading: verdict.heading };
 }
