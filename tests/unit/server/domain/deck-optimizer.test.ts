@@ -9,7 +9,7 @@ import {
     optimizeDeck,
     type DeckOptimizeOptions,
 } from "../../../../src/server/domain/deck-optimizer.js";
-import { handCount } from "../../../../src/server/domain/deck-score.js";
+import { handCount, scoreDeck } from "../../../../src/server/domain/deck-score.js";
 import { buildSearchSpace, planExhaustive } from "../../../../src/server/domain/deck-search.js";
 import { getHandEvaluator } from "../../../../src/server/domain/hand-evaluator.js";
 import { runInWorker } from "../../../../src/server/workers/deck-optimizer-runner.js";
@@ -506,5 +506,78 @@ describe("optimizeDeck at full size, in a worker thread", () => {
         // The budget, the closing exact scores, the worker start-up and slack for a slow machine.
         expect(performance.now() - started).toBeLessThan(2_000 + 6_000);
         expect(MAX_SEARCH_MILLIS).toBeGreaterThan(2_000);
+    });
+});
+
+describe("optimizeDeck on a terrain", () => {
+    // Two Machine cards (1800 ATK) fill half of a deck of 12, six weak Pyro and Fairy-like cards the rest; the
+    // spare cards are two Aqua monsters of 1600 and 1550 ATK. Printed, the Machines are stronger. On Umi the
+    // Aqua cards gain 500 and the Machines lose 500, so the Aqua cards are worth about 800 more each.
+    const MECH_BASS = 441;
+    const CYBER_SAURUS = 508;
+    const DRAGON_PIPER = 40;
+    const BAT = 411;
+    const OCTOBERSER = 131;
+    const VIOLENT_RAIN = 599;
+
+    function umiPool(): DeckOptimizeRequest {
+        return {
+            deck: [
+                ...Array<number>(3).fill(MECH_BASS),
+                ...Array<number>(3).fill(CYBER_SAURUS),
+                ...Array<number>(3).fill(DRAGON_PIPER),
+                ...Array<number>(3).fill(BAT),
+            ],
+            trunk: [
+                { id: OCTOBERSER, count: 3 },
+                { id: VIOLENT_RAIN, count: 3 },
+            ],
+        };
+    }
+
+    function held(result: DeckOptimizeResponse, id: number): number {
+        return ids(result).filter((card) => card === id).length;
+    }
+
+    it("recommends other cards on Umi than without a terrain", () => {
+        const plain = optimizeDeck(umiPool());
+        const umi = optimizeDeck({ ...umiPool(), terrain: "umi" });
+        expect(plain.certified).toBe(true);
+        expect(umi.certified).toBe(true);
+        // Without a terrain the Aqua cards stay out; Violent Rain (1550) never beats a Machine of 1800.
+        expect(held(plain, VIOLENT_RAIN)).toBe(0);
+        // On Umi every Aqua copy comes in, and the Machines the deck keeps are the cards that are left.
+        expect(held(umi, OCTOBERSER)).toBe(3);
+        expect(held(umi, VIOLENT_RAIN)).toBe(3);
+        expect(ids(umi)).not.toEqual(ids(plain));
+    });
+
+    it("reports stats scored on the terrain, over all hands", () => {
+        const request = { ...umiPool(), terrain: "umi" } as const;
+        const result = optimizeDeck(request);
+        const onUmi = getHandEvaluator("umi");
+        const current = scoreDeck(onUmi, request.deck);
+        const recommended = scoreDeck(onUmi, ids(result));
+        expect(result.current.averageBestAtk).toBeCloseTo(current.totalAtk / current.hands, 2);
+        expect(result.recommended.averageBestAtk).toBeCloseTo(recommended.totalAtk / recommended.hands, 2);
+        // The same current deck is worth less on Umi, where its Machines are weakened, than printed.
+        const printed = optimizeDeck(umiPool());
+        expect(result.current.averageBestAtk).toBeLessThan(printed.current.averageBestAtk);
+    });
+
+    it("gives the same answer with no terrain, a null terrain, or the field left out", () => {
+        const plain = optimizeDeck(umiPool());
+        expect(optimizeDeck({ ...umiPool(), terrain: null })).toEqual(plain);
+        const printed = scoreDeck(getHandEvaluator(), ids(plain));
+        expect(plain.recommended.averageBestAtk).toBeCloseTo(printed.totalAtk / printed.hands, 2);
+    });
+
+    it("searches on the terrain too when the pool is too large to enumerate", () => {
+        const request = { ...umiPool(), terrain: "umi" } as const;
+        const result = optimizeDeck(request, LOCAL);
+        expect(result.method).toBe("local-search");
+        expect(held(result, OCTOBERSER) + held(result, VIOLENT_RAIN)).toBeGreaterThanOrEqual(5);
+        const onUmi = scoreDeck(getHandEvaluator("umi"), ids(result));
+        expect(result.recommended.averageBestAtk).toBeCloseTo(onUmi.totalAtk / onUmi.hands, 2);
     });
 });

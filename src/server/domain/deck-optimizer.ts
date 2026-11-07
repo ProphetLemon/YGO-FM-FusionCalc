@@ -121,7 +121,7 @@ export function optimizeDeck(
     const deadline = now() + (options.maxMillis ?? MAX_SEARCH_MILLIS);
     const keepNonMonsters = options.keepNonMonsters ?? request.keepNonMonsters ?? true;
 
-    const evaluator = getHandEvaluator();
+    const evaluator = getHandEvaluator(request.terrain);
     const original = Int16Array.from(request.deck);
     const space = buildSearchSpace(
         evaluator,

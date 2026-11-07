@@ -8,6 +8,7 @@ import {
     MAX_COPIES_PER_CARD,
     copyLimit,
 } from "../../../shared/limits.js";
+import { TERRAIN_IDS, isTerrainId } from "../../../shared/terrains.js";
 import type { DeckLock, DeckOptimizeRequest, DeckTrunkEntry } from "../../../shared/types.js";
 import { findBoardChains, findBoardCombinations, type BoardInput } from "../../domain/board.js";
 import { findCombinations } from "../../domain/calculator.js";
@@ -217,7 +218,7 @@ function deckFits(
 // counts are only checked for shape and range here; the optimiser trusts nothing beyond them.
 function readDeckRequest(req: Request, res: Response): DeckOptimizeRequest | null {
     const body: Record<string, unknown> = isRecord(req.body) ? req.body : {};
-    const { deck, trunk, keepNonMonsters, locked, forbidden } = body;
+    const { deck, trunk, keepNonMonsters, locked, forbidden, terrain } = body;
 
     if (!Array.isArray(deck) || deck.length !== DECK_SIZE || !deck.every(isCardId)) {
         sendError(res, 400, {
@@ -254,6 +255,13 @@ function readDeckRequest(req: Request, res: Response): DeckOptimizeRequest | nul
         sendError(res, 400, { code: "invalid-options", message: "keepNonMonsters must be a boolean" });
         return null;
     }
+    if (terrain !== undefined && terrain !== null && !isTerrainId(terrain)) {
+        sendError(res, 400, {
+            code: "invalid-options",
+            message: `terrain must be one of ${TERRAIN_IDS.join(", ")}, or null for no terrain`,
+        });
+        return null;
+    }
     const unknown = [...deck, ...trunkIds].find((id: number) => getCardById(id) === undefined);
     if (unknown !== undefined) {
         sendError(res, 400, { code: "unknown-card", message: `No card with id ${unknown}` });
@@ -284,6 +292,7 @@ function readDeckRequest(req: Request, res: Response): DeckOptimizeRequest | nul
         ...(keepNonMonsters === undefined ? {} : { keepNonMonsters }),
         ...(locks.length === 0 ? {} : { locked: locks }),
         ...(banned.length === 0 ? {} : { forbidden: banned }),
+        ...(isTerrainId(terrain) ? { terrain } : {}),
     };
     const { fits, required, allowed } = deckFits(request, keepNonMonsters ?? true, owned);
     if (!fits) {

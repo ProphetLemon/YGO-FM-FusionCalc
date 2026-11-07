@@ -5,6 +5,7 @@ import {
     getFusionsForCard,
     getRitualRecipes,
 } from "../data/store.js";
+import { terrainAttack, type TerrainId } from "../../shared/terrains.js";
 import { isMonster } from "./cards.js";
 
 // A play is a packed integer: the ATK of the strongest monster a hand can make, shifted left by PLAY_SHIFT,
@@ -36,6 +37,12 @@ export function fusionOfPlay(play: number): number {
 // A fusion result that fuses with no card at all is a dead end, so the chain stops there. That prune is
 // exact. A stronger "no partner left in the hand" prune is NOT: it was measured to change the answer.
 // Build one per loaded store; it reads the store once.
+//
+// A field terrain changes the ATK of a monster by its Type, so the same hand can have another best play. A
+// terrain evaluator is derived from the base one with `withTerrain`: it shares the fusion and ritual tables
+// and holds its own adjusted copies of the four ATK tables. The best chain is the maximum over adjusted
+// values, which `chain` computes because it visits every result a hand can reach (the only prune is the
+// exact dead-end one), never ordering them by printed ATK.
 export class HandEvaluator {
     // Ids run from 0 to size - 1.
     readonly size: number;
@@ -45,6 +52,10 @@ export class HandEvaluator {
     readonly monster: Uint8Array;
     // ATK of a monster card as it is; 0 for any other card.
     readonly attack: Int16Array;
+    // The terrain the ATK tables are adjusted for, or null for the printed ATK.
+    readonly terrain: TerrainId | null;
+    // Type of a monster card (0 for any other card); the base of the terrain adjustment.
+    private readonly type: Uint8Array;
     private readonly single: Int32Array;
     private readonly made: Int32Array;
     private readonly alive: Uint8Array;
@@ -53,11 +64,45 @@ export class HandEvaluator {
     private readonly ritualRequires: Int16Array;
     private readonly ritualNeeds: Uint8Array;
     private readonly ritualPlays: Int32Array;
+    // Id of the monster each recipe makes, or 0.
+    private readonly ritualResult: Int16Array;
     private readonly hand = new Int16Array(HAND_SIZE);
     // scratch[m] holds the m cards left after one fusion, for the chain search one level down.
     private readonly scratch: Int16Array[] = Array.from({ length: HAND_SIZE }, (_, m) => new Int16Array(m));
 
-    constructor() {
+    // With `derive`, builds the evaluator of a terrain from the base one instead of reading the store.
+    constructor(derive?: { base: HandEvaluator; terrain: TerrainId }) {
+        if (derive !== undefined) {
+            const { base, terrain } = derive;
+            this.size = base.size;
+            this.fusion = base.fusion;
+            this.monster = base.monster;
+            this.alive = base.alive;
+            this.ritualOf = base.ritualOf;
+            this.ritualRequires = base.ritualRequires;
+            this.ritualNeeds = base.ritualNeeds;
+            this.ritualResult = base.ritualResult;
+            this.type = base.type;
+            this.terrain = terrain;
+            this.attack = new Int16Array(base.size);
+            this.single = new Int32Array(base.size);
+            this.made = new Int32Array(base.size);
+            for (let id = 0; id < base.size; id++) {
+                if (base.monster[id] === 0) continue;
+                const adjusted = terrainAttack(base.attack[id]!, base.type[id]!, terrain);
+                this.attack[id] = adjusted;
+                this.single[id] = (adjusted << PLAY_SHIFT) | PLAY_NO_FUSION;
+                this.made[id] = (adjusted << PLAY_SHIFT) | (MADE_BASE - id);
+            }
+            this.ritualPlays = new Int32Array(base.ritualPlays.length);
+            base.ritualResult.forEach((result, index) => {
+                if (result === 0) return;
+                const adjusted = terrainAttack(base.attack[result]!, base.type[result]!, terrain);
+                this.ritualPlays[index] = (adjusted << PLAY_SHIFT) | PLAY_NO_FUSION;
+            });
+            return;
+        }
+        this.terrain = null;
         const cards = getAllCards();
         const size = cards.reduce((top, card) => Math.max(top, card.Id), 0) + 1;
         if (size > MADE_BASE) throw new Error(`Card ids up to ${size - 1} do not fit the packed play`);
@@ -69,10 +114,12 @@ export class HandEvaluator {
         this.made = new Int32Array(size);
         this.alive = new Uint8Array(size);
         this.ritualOf = new Uint8Array(size);
+        this.type = new Uint8Array(size);
 
         for (const card of cards) {
             if (!isMonster(card)) continue;
             this.monster[card.Id] = 1;
+            this.type[card.Id] = card.Type;
             this.attack[card.Id] = card.Attack;
             this.single[card.Id] = (card.Attack << PLAY_SHIFT) | PLAY_NO_FUSION;
             this.made[card.Id] = (card.Attack << PLAY_SHIFT) | (MADE_BASE - card.Id);
@@ -93,6 +140,7 @@ export class HandEvaluator {
         this.ritualRequires = new Int16Array(recipes.length * 4);
         this.ritualNeeds = new Uint8Array(recipes.length * 4);
         this.ritualPlays = new Int32Array(recipes.length);
+        this.ritualResult = new Int16Array(recipes.length);
         recipes.forEach((recipe, index) => {
             const required = [recipe.RitualCard, recipe.Card1, recipe.Card2, recipe.Card3];
             required.forEach((id, slot) => {
@@ -101,10 +149,18 @@ export class HandEvaluator {
                 this.ritualNeeds[index * 4 + slot] = required.filter((other) => other === id).length;
             });
             const result = getCardById(recipe.Result);
-            this.ritualPlays[index] =
-                result && isMonster(result) ? (result.Attack << PLAY_SHIFT) | PLAY_NO_FUSION : 0;
+            if (result && isMonster(result)) {
+                this.ritualResult[index] = result.Id;
+                this.ritualPlays[index] = (result.Attack << PLAY_SHIFT) | PLAY_NO_FUSION;
+            }
             this.ritualOf[recipe.RitualCard] = index + 1;
         });
+    }
+
+    // The evaluator of the same store on `terrain`. Allocates new ATK tables (a few thousand entries), so the
+    // base is never changed; `getHandEvaluator(terrain)` caches the result.
+    withTerrain(terrain: TerrainId): HandEvaluator {
+        return new HandEvaluator({ base: this, terrain });
     }
 
     // The best play of a 5-card hand, as a packed integer (see `atkOfPlay` and `fusionOfPlay`).
@@ -186,11 +242,28 @@ export class HandEvaluator {
     }
 }
 
-let cached: { source: readonly unknown[]; evaluator: HandEvaluator } | null = null;
+interface CachedEvaluators {
+    source: readonly unknown[];
+    evaluator: HandEvaluator;
+    // Terrain evaluators derived from `evaluator`: at most one per terrain, so at most 7 evaluators in all.
+    terrains: Map<TerrainId, HandEvaluator>;
+}
 
-// One evaluator per loaded store: the store replaces its card list when it is loaded again.
-export function getHandEvaluator(): HandEvaluator {
+let cached: CachedEvaluators | null = null;
+
+// One evaluator per loaded store: the store replaces its card list when it is loaded again. With a terrain,
+// the evaluator derived for it, cached next to the base one and dropped with it; no terrain (or null) is the
+// base evaluator, whose tables a terrain never changes.
+export function getHandEvaluator(terrain?: TerrainId | null): HandEvaluator {
     const source = getAllCards();
-    if (cached === null || cached.source !== source) cached = { source, evaluator: new HandEvaluator() };
-    return cached.evaluator;
+    if (cached === null || cached.source !== source) {
+        cached = { source, evaluator: new HandEvaluator(), terrains: new Map() };
+    }
+    if (terrain === undefined || terrain === null) return cached.evaluator;
+    let derived = cached.terrains.get(terrain);
+    if (derived === undefined) {
+        derived = cached.evaluator.withTerrain(terrain);
+        cached.terrains.set(terrain, derived);
+    }
+    return derived;
 }

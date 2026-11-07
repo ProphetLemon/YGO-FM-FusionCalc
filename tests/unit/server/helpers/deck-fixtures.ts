@@ -1,7 +1,12 @@
 import { DECK_SIZE } from "../../../../src/shared/limits.js";
 import { getAllCards, getCardById } from "../../../../src/server/data/store.js";
 import { isMonster } from "../../../../src/server/domain/cards.js";
-import { findBestChains } from "../../../../src/server/domain/chain-search.js";
+import {
+    MAX_CHAIN_STATES,
+    exploreHandStates,
+    findBestChains,
+} from "../../../../src/server/domain/chain-search.js";
+import { terrainAttack, type TerrainId } from "../../../../src/shared/terrains.js";
 import { findRituals } from "../../../../src/server/domain/rituals.js";
 import { getHandEvaluator } from "../../../../src/server/domain/hand-evaluator.js";
 
@@ -18,6 +23,24 @@ export function referencePlay(hand: readonly number[]): number {
     if (chain) best = Math.max(best, chain.finalCard.attack);
     const ritual = findRituals(hand)[0];
     if (ritual) best = Math.max(best, ritual.result.attack);
+    return best;
+}
+
+// The same model on a field terrain, for the terrain evaluators. Every value is adjusted by the Type of the
+// card that ends on the field, and the maximum is taken over ALL of them: the monsters of the hand, every
+// final card of every chain (`findBestChains` keeps only the top 5 by printed ATK, and a terrain can promote
+// a lower one) and the result of every complete ritual. With no terrain it is `referencePlay`.
+export function referencePlayOnTerrain(hand: readonly number[], terrain: TerrainId | null): number {
+    if (terrain === null) return referencePlay(hand);
+    const onField = (id: number): number => {
+        const card = getCardById(id);
+        return card && isMonster(card) ? terrainAttack(card.Attack, card.Type, terrain) : 0;
+    };
+    let best = 0;
+    for (const id of hand) best = Math.max(best, onField(id));
+    const { candidates } = exploreHandStates([...hand], MAX_CHAIN_STATES);
+    for (const id of candidates.keys()) best = Math.max(best, onField(id));
+    for (const ritual of findRituals(hand)) best = Math.max(best, onField(ritual.result.id));
     return best;
 }
 

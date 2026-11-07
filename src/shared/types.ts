@@ -1,3 +1,5 @@
+import type { TerrainId } from "./terrains.js";
+
 export interface Card {
     Id: number;
     Name: string;
@@ -152,6 +154,9 @@ export interface DeckOptimizeRequest {
     // cards, at most one entry per card owned. They win over `keepNonMonsters` and cannot also be in `locked`.
     // Omitted: none.
     forbidden?: number[];
+    // Field terrain the decks are scored on: it adds or takes 500 ATK from monsters by Type. Omitted or null:
+    // no terrain, the printed ATK.
+    terrain?: TerrainId | null;
 }
 
 // How a deck plays over all of its 5-card hands: the strongest monster each hand can make. Every number is

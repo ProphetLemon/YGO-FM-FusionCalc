@@ -6,7 +6,8 @@ import { createApp } from "../../../../src/server/app.js";
 import { DECK_SIZE, MAX_TRUNK_COUNT } from "../../../../src/shared/limits.js";
 import { getAllCards, loadStore } from "../../../../src/server/data/store.js";
 import { isMonster } from "../../../../src/server/domain/cards.js";
-import type { DeckOptimizeResponse } from "../../../../src/shared/types.js";
+import { TERRAIN_IDS } from "../../../../src/shared/terrains.js";
+import type { DeckOptimizeRequest, DeckOptimizeResponse } from "../../../../src/shared/types.js";
 import {
     createDeckOptimizerService,
     runInWorker,
@@ -256,6 +257,55 @@ describe("POST /api/deck/optimize", () => {
         const res = await post({ deck: DECK, trunk: TRUNK, keepNonMonsters: "yes" });
         expect(res.status).toBe(400);
         expect(res.body.error.code).toBe("invalid-options");
+    });
+
+    describe("terrain", () => {
+        // An app whose optimiser records the request it gets and answers with a fixed result.
+        function recordingApp() {
+            const seen: DeckOptimizeRequest[] = [];
+            const recording = createApp({
+                deckOptimizer: createDeckOptimizerService(async (body) => {
+                    seen.push(body);
+                    return answer;
+                }),
+            });
+            return { recording, seen };
+        }
+
+        it("400 invalid-options for a terrain that is not one of the six", async () => {
+            for (const terrain of ["Umi", "sea", "", 4, true, {}, ["umi"]]) {
+                const res = await post({ deck: DECK, trunk: TRUNK, terrain });
+                expect(res.status, JSON.stringify(terrain)).toBe(400);
+                expect(res.body.error.code).toBe("invalid-options");
+                expect(res.body.error.message).toContain("terrain");
+            }
+        });
+
+        it("passes each of the six terrains to the optimiser", async () => {
+            const { recording, seen } = recordingApp();
+            for (const terrain of TERRAIN_IDS) {
+                const res = await post({ deck: DECK, trunk: TRUNK, terrain }, recording);
+                expect(res.status).toBe(200);
+            }
+            expect(seen.map((body) => body.terrain)).toEqual([...TERRAIN_IDS]);
+        });
+
+        it("leaves the field out of the request for no terrain, a null terrain, or a body without it", async () => {
+            const { recording, seen } = recordingApp();
+            await post({ deck: DECK, trunk: TRUNK }, recording);
+            await post({ deck: DECK, trunk: TRUNK, terrain: null }, recording);
+            expect(seen).toHaveLength(2);
+            for (const body of seen) expect("terrain" in body).toBe(false);
+        });
+
+        it("200 from the worker thread with a terrain, scored on it", async () => {
+            const res = await post({ deck: DECK, trunk: TRUNK, terrain: "umi" });
+            expect(res.status).toBe(200);
+            expect(res.body.deck).toHaveLength(DECK_SIZE);
+            const plain = await post({ deck: DECK, trunk: TRUNK });
+            expect(plain.status).toBe(200);
+            expect(res.body.current.averageBestAtk).not.toBe(plain.body.current.averageBestAtk);
+        });
     });
 
     it("200 with locks, which the recommended deck keeps", async () => {
