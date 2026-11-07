@@ -8,14 +8,18 @@ import {
     type Response as PageResponse,
     type Route,
 } from "@playwright/test";
-import { MAX_HAND_SIZE } from "../../src/shared/limits.js";
+import { ZONE_SIZE, fillBoard, type BoardNames } from "./helpers/board.js";
 
 const MYSTICAL_ELF = "Mystical Elf";
 const MUSHROOM_MAN = "Mushroom Man";
 // Two cards with one fusion between them and no ritual.
 const FUSION_PAIR = [MYSTICAL_ELF, MUSHROOM_MAN];
-// A ritual card with its three materials, three of whose pairs also fuse: both result blocks fill up.
-const DANCE_HAND = ["Commencement Dance", "Water Omotics", "Dancing Elf", "Bean Soldier"];
+// A ritual card in the hand with its three materials in the monster zone. The three materials are also in the
+// hand, and some of their pairs fuse: both result blocks fill up.
+const DANCE_BOARD: BoardNames = {
+    hand: ["Commencement Dance", "Water Omotics", "Dancing Elf", "Bean Soldier"],
+    monster: ["Water Omotics", "Dancing Elf", "Bean Soldier"],
+};
 const UNKNOWN_NAME = "Definitely Not A Card";
 // Two monsters with neither a fusion nor an equip between them: no chain can start.
 const NO_CHAIN_PAIR = ["Blue-eyes White Dragon", MYSTICAL_ELF];
@@ -25,7 +29,7 @@ const TEXT = {
     lookupFailed: "No se pudo buscar la carta. Inténtalo de nuevo.",
     resultsFailed: "No se pudieron calcular los resultados. Inténtalo de nuevo.",
     chainFailed: "No se pudo calcular la cadena. Inténtalo de nuevo.",
-    noChain: "No se encontró ninguna cadena posible con esta mano.",
+    noChain: "No se encontró ninguna cadena posible con este tablero.",
     indexFailed: "No se pudo cargar la lista de cartas.",
     retry: "Reintentar",
 };
@@ -45,7 +49,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 function slotAt(page: Page, index: number): Locator {
-    return page.locator(".hand-slot").nth(index);
+    return page.locator("#zone-hand .board-slot").nth(index);
 }
 
 async function fillSlot(page: Page, index: number, name: string): Promise<void> {
@@ -138,14 +142,20 @@ function apiError(code: string): unknown {
     return { error: { code, message: code } };
 }
 
-function sentHandIds(request: PageRequest): number[] {
-    return (request.postDataJSON() as { handIds: number[] }).handIds;
+// Every card a board request carries, in all three zones.
+function sentCards(request: PageRequest): number[] {
+    const { handIds, monsterIds, spellIds } = request.postDataJSON() as {
+        handIds: number[];
+        monsterIds: number[];
+        spellIds: number[];
+    };
+    return [...handIds, ...monsterIds, ...spellIds];
 }
 
 function waitForCalculation(page: Page, handSize: number): Promise<PageResponse> {
     return page.waitForResponse(
         (response) =>
-            isCalculator(new URL(response.url())) && sentHandIds(response.request()).length === handSize
+            isCalculator(new URL(response.url())) && sentCards(response.request()).length === handSize
     );
 }
 
@@ -161,9 +171,15 @@ interface Calculation {
 }
 
 // What the API answers for a hand: the rendered blocks must hold exactly that, once.
-async function calculateFor(request: APIRequestContext, names: readonly string[]): Promise<Calculation> {
-    const handIds = await Promise.all(names.map((name) => idOf(request, name)));
-    const response = await request.post("/api/calculator", { data: { handIds } });
+async function calculateFor(request: APIRequestContext, board: BoardNames): Promise<Calculation> {
+    const ids = (names: readonly string[] = []): Promise<number[]> =>
+        Promise.all(names.map((name) => idOf(request, name)));
+    const data = {
+        handIds: await ids(board.hand),
+        monsterIds: await ids(board.monster),
+        spellIds: await ids(board.spell),
+    };
+    const response = await request.post("/api/calculator", { data });
     return (await response.json()) as Calculation;
 }
 
@@ -172,14 +188,14 @@ test.describe("overlapping calculations", () => {
         page,
         request,
     }) => {
-        const expected = await calculateFor(request, DANCE_HAND);
+        const expected = await calculateFor(request, DANCE_BOARD);
         expect(expected.fusions.length).toBeGreaterThan(0);
         expect(expected.rituals.length).toBeGreaterThan(0);
         await openCalculator(page);
         const held = await holdRequests(page, isCalculator);
         const calculations = logRequests(page, isCalculator);
 
-        await fillHand(page, DANCE_HAND);
+        await fillBoard(page, DANCE_BOARD);
         await expect.poll(() => held.length).toBeGreaterThanOrEqual(3);
         await expectAlive(calculations, 1);
         // The answer for the whole hand goes first and those of the smaller hands after it.
@@ -194,7 +210,7 @@ test.describe("overlapping calculations", () => {
     });
 
     test("render once when every answer is merely slow", async ({ page, request }) => {
-        const expected = await calculateFor(request, DANCE_HAND);
+        const expected = await calculateFor(request, DANCE_BOARD);
         await openCalculator(page);
         await page.route(isCalculator, async (route) => {
             await new Promise((resolve) => setTimeout(resolve, 300));
@@ -202,7 +218,7 @@ test.describe("overlapping calculations", () => {
         });
         const calculations = logRequests(page, isCalculator);
 
-        await fillHand(page, DANCE_HAND);
+        await fillBoard(page, DANCE_BOARD);
         await settled(page, calculations);
 
         await expect(page.locator("#fusions-title")).toBeVisible();
@@ -305,6 +321,28 @@ test.describe("a failed calculation", () => {
 
         await expect(page.locator("#results-error").getByRole("alert")).toHaveText(TEXT.resultsFailed);
     });
+
+    test("names the zone limit when the server rejects the board as too large", async ({ page }) => {
+        await page.route(isCalculator, fulfillJson(400, apiError("board-too-large")));
+        await openCalculator(page);
+
+        await fillHand(page, FUSION_PAIR);
+
+        await expect(page.locator("#results-error").getByRole("alert")).toHaveText(
+            `Hay demasiadas cartas en una zona (máximo ${ZONE_SIZE} por zona).`
+        );
+    });
+
+    test("names the rule when the server rejects a card in the wrong zone", async ({ page }) => {
+        await page.route(isCalculator, fulfillJson(400, apiError("invalid-zones")));
+        await openCalculator(page);
+
+        await fillHand(page, FUSION_PAIR);
+
+        await expect(page.locator("#results-error").getByRole("alert")).toContainText(
+            "Hay una carta en una zona que no la admite"
+        );
+    });
 });
 
 test.describe("an unknown card name", () => {
@@ -335,7 +373,7 @@ test.describe("an unknown card name", () => {
         const calculation = waitForCalculation(page, 3);
         await fillSlot(page, 3, "Blue-eyes White Dragon");
 
-        expect(sentHandIds((await calculation).request())).toEqual(ids);
+        expect(sentCards((await calculation).request())).toEqual(ids);
         await expect(page.locator("#outputarealeft")).toContainText(MYSTICAL_ELF);
         await expect(slotAt(page, 2).locator("input")).toHaveValue(UNKNOWN_NAME);
     });
@@ -644,11 +682,11 @@ test.describe("the chain request", () => {
         await slotAt(page, 1).locator("input").dispatchEvent("change");
         await settled(page, chains);
         expect(chains.started).toHaveLength(1);
-        expect(sentHandIds(chains.started[0]!)).toHaveLength(2);
+        expect(sentCards(chains.started[0]!)).toHaveLength(2);
 
         await fillSlot(page, 2, "Blue-eyes White Dragon");
         await expect.poll(() => chains.started.length).toBe(2);
-        expect(sentHandIds(chains.started[1]!)).toHaveLength(3);
+        expect(sentCards(chains.started[1]!)).toHaveLength(3);
 
         await slotAt(page, 2).locator(".clear-btn").click();
         await slotAt(page, 1).locator(".clear-btn").click();
@@ -812,15 +850,26 @@ test.describe("chain search errors", () => {
         await fillHand(page, FUSION_PAIR);
     }
 
-    test("name the hand limit when the server rejects the hand as too large", async ({ page }) => {
-        await page.route(isChainSearch, fulfillJson(400, apiError("hand-too-large")));
+    test("name the zone limit when the server rejects the board as too large", async ({ page }) => {
+        await page.route(isChainSearch, fulfillJson(400, apiError("board-too-large")));
 
         await searchChainFor(page);
 
         await expect(page.locator("#chain-output").getByRole("alert")).toHaveText(
-            `La mano es demasiado grande para el cálculo de cadenas (máximo ${MAX_HAND_SIZE} cartas).`
+            `Hay demasiadas cartas en una zona (máximo ${ZONE_SIZE} por zona).`
         );
         await expect(page.locator("#chain-loading")).toBeHidden();
+        await expect(page.locator("#chainBtn")).toBeEnabled();
+    });
+
+    test("name the rule when the server rejects a card in the wrong zone", async ({ page }) => {
+        await page.route(isChainSearch, fulfillJson(400, apiError("invalid-zones")));
+
+        await searchChainFor(page);
+
+        await expect(page.locator("#chain-output").getByRole("alert")).toHaveText(
+            "Hay una carta en una zona que no la admite: la zona de monstruos solo admite monstruos y la de magias y trampas, el resto."
+        );
         await expect(page.locator("#chainBtn")).toBeEnabled();
     });
 
@@ -867,7 +916,7 @@ test.describe("a failed card index", () => {
 
         await page.goto("/calculator");
 
-        await expect(page.locator(".hand-slot")).toHaveCount(5);
+        await expect(page.locator("#zone-hand .board-slot")).toHaveCount(5);
         const alert = page.locator("#index-error");
         await expect(alert).toBeVisible();
         await expect(alert).toContainText(TEXT.indexFailed);
@@ -926,7 +975,7 @@ test.describe("a failed card index", () => {
         await page.goto("/calculator");
 
         await expect(page.locator("#index-error")).toBeVisible();
-        await expect(page.locator(".hand-slot")).toHaveCount(5);
+        await expect(page.locator("#zone-hand .board-slot")).toHaveCount(5);
     });
 });
 
@@ -937,13 +986,13 @@ test.describe("in English", () => {
         await openCalculator(page);
         await fillSlot(page, 0, UNKNOWN_NAME);
         await expect(slotAt(page, 0).getByRole("alert")).toHaveText("Invalid card name");
-        await page.route(isChainSearch, fulfillJson(400, apiError("hand-too-large")));
+        await page.route(isChainSearch, fulfillJson(400, apiError("board-too-large")));
         await fillSlot(page, 1, MYSTICAL_ELF);
         await fillSlot(page, 2, MUSHROOM_MAN);
         await expect(slotAt(page, 2).locator(".slot-name")).toHaveText(MUSHROOM_MAN);
 
         await expect(page.locator("#chain-output").getByRole("alert")).toHaveText(
-            `Hand is too large for chain calculation (max ${MAX_HAND_SIZE} cards).`
+            `There are too many cards in one zone (at most ${ZONE_SIZE} per zone).`
         );
         await expect(page.locator("#chainBtn")).toHaveText("Retry");
 

@@ -14,9 +14,11 @@ const OPERATOR_CLASS = "font-display text-3xl font-bold leading-none text-wb-ink
 let panelCount = 0;
 
 // Where the card an operand stands for came from: the number of the step that made it, or null for a card
-// of the hand. A chain does not say which it is, so the hand is replayed: an operand is taken from the
-// hand while the hand still holds that card, and from the results of the earlier steps after that. When the
-// same card is in both, the two readings are the same play.
+// of the hand or of the field. A chain does not say which it is, so the hand is replayed: an operand is taken
+// from the hand while the hand still holds that card, and from the results of the earlier steps after that.
+// When the same card is in both, the two readings are the same play. A chain that starts on the field
+// (`fieldIndex`) uses a monster of the field as the first operand: that card is not taken from the hand, so
+// a copy of it in the hand stays there for the steps that follow.
 export function operandOrigins(
     chain: ChainResult,
     handIds: readonly number[]
@@ -36,7 +38,11 @@ export function operandOrigins(
     };
 
     return chain.steps.map((step, index) => {
-        const origins: [number | null, number | null] = [take(step.card1.id), take(step.card2.id)];
+        const fromField = index === 0 && chain.fieldIndex !== undefined;
+        const origins: [number | null, number | null] = [
+            fromField ? null : take(step.card1.id),
+            take(step.card2.id),
+        ];
         const list = made.get(step.result.id) ?? [];
         list.push(index + 1);
         made.set(step.result.id, list);

@@ -1,36 +1,24 @@
 import { expect, test } from "@playwright/test";
+import { BOARD_SIZE, ZONE_SIZE, ZONES } from "./helpers/board.js";
 
-const START_SLOTS = 5;
-
-test("calculator loads with five empty slots", async ({ page }) => {
+test("calculator loads with fifteen empty slots in three zones", async ({ page }) => {
     await page.goto("/calculator");
-    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS);
+    await expect(page.locator(".board-slot")).toHaveCount(BOARD_SIZE);
+    for (const zone of ZONES) {
+        await expect(page.locator(`#zone-${zone} .board-slot`)).toHaveCount(ZONE_SIZE);
+    }
 });
 
-test("add slot button increases slot count", async ({ page }) => {
+test("the slots cannot be added or removed", async ({ page }) => {
     await page.goto("/calculator");
-    await page.locator("#addSlotBtn").click();
-    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS + 1);
-});
-
-test("remove slot buttons are hidden at minimum slots", async ({ page }) => {
-    await page.goto("/calculator");
-    const removeBtns = page.locator(".remove-btn");
-    await expect(removeBtns.first()).toBeHidden();
-});
-
-test("remove slot button decreases slot count", async ({ page }) => {
-    await page.goto("/calculator");
-    await page.locator("#addSlotBtn").click();
-    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS + 1);
-    await page.locator(".remove-btn").first().click();
-    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS);
+    await expect(page.locator("#addSlotBtn")).toHaveCount(0);
+    await expect(page.locator(".remove-btn")).toHaveCount(0);
 });
 
 test("calculator finds fusion when hand contains a known pair", async ({ page }) => {
     await page.goto("/calculator");
-    const hand1 = page.locator(".hand-slot").nth(0).locator("input");
-    const hand2 = page.locator(".hand-slot").nth(1).locator("input");
+    const hand1 = page.locator("#zone-hand .board-slot").nth(0).locator("input");
+    const hand2 = page.locator("#zone-hand .board-slot").nth(1).locator("input");
     await hand1.fill("Mystical Elf");
     await hand1.dispatchEvent("change");
     await hand2.fill("Mushroom Man");
@@ -41,7 +29,7 @@ test("calculator finds fusion when hand contains a known pair", async ({ page })
 
 test("reset clears all hand inputs and outputs", async ({ page }) => {
     await page.goto("/calculator");
-    const hand1 = page.locator(".hand-slot").nth(0).locator("input");
+    const hand1 = page.locator("#zone-hand .board-slot").nth(0).locator("input");
     await hand1.fill("Mystical Elf");
     await hand1.dispatchEvent("change");
     await page.locator("#resetBtn").click();
@@ -49,18 +37,16 @@ test("reset clears all hand inputs and outputs", async ({ page }) => {
     await expect(page.locator("#outputarealeft")).toBeEmpty();
 });
 
-test("reset keeps current slot count", async ({ page }) => {
+test("reset keeps the fifteen slots", async ({ page }) => {
     await page.goto("/calculator");
-    await page.locator("#addSlotBtn").click();
-    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS + 1);
     await page.locator("#resetBtn").click();
-    await expect(page.locator(".hand-slot")).toHaveCount(START_SLOTS + 1);
+    await expect(page.locator(".board-slot")).toHaveCount(BOARD_SIZE);
 });
 
 test("the chain is searched by itself for a known fusable pair", async ({ page }) => {
     await page.goto("/calculator");
-    const hand1 = page.locator(".hand-slot").nth(0).locator("input");
-    const hand2 = page.locator(".hand-slot").nth(1).locator("input");
+    const hand1 = page.locator("#zone-hand .board-slot").nth(0).locator("input");
+    const hand2 = page.locator("#zone-hand .board-slot").nth(1).locator("input");
     await hand1.fill("Mystical Elf");
     await hand1.dispatchEvent("change");
     await hand2.fill("Mushroom Man");

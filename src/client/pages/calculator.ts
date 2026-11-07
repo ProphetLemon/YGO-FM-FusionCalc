@@ -3,17 +3,36 @@ import { Autocomplete } from "../components/autocomplete.js";
 import { renderChains } from "../components/chain-panel.js";
 import { renderEquipRow, renderFusionTable, renderRitualRow } from "../components/results-panels.js";
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
-import type { CalculatorResponse, CardSummary, FusionExpanded, RitualExpanded } from "../../shared/types.js";
-import { MAX_HAND_SIZE } from "../../shared/limits.js";
-import { findFusionSlots } from "../lib/fusion-slots.js";
-import { MIN_HAND_SIZE, canAddSlot, canRemoveSlot, getSlotIds, getValidIds } from "../lib/slots.js";
+import type {
+    BoardZone,
+    CalculatorResponse,
+    CardIndexEntry,
+    CardSummary,
+    FusionExpanded,
+    RitualExpanded,
+} from "../../shared/types.js";
+import { ZONE_SIZE } from "../../shared/limits.js";
+import {
+    BOARD_SIZE,
+    ZONES,
+    buildBoardRequest,
+    emptyZones,
+    fitsZone,
+    planFusion,
+    type SentBoard,
+    type SlotCard,
+    type ZoneRecord,
+} from "../lib/board.js";
+import { loadBoard, placeLegacyRest, saveBoard, splitLegacyHand } from "../lib/board-storage.js";
 import { createCardImg } from "../lib/card-image.js";
 import { clear, qs } from "../lib/dom.js";
-import { loadHand, saveHand } from "../lib/hand-storage.js";
+import { loadHand } from "../lib/hand-storage.js";
 import { createLatest, type Latest } from "../lib/latest.js";
 import { t } from "../lib/i18n.js";
 
 interface SlotState {
+    zone: BoardZone;
+    index: number;
     cell: HTMLElement;
     input: HTMLInputElement;
     emptyState: HTMLElement;
@@ -25,16 +44,31 @@ interface SlotState {
     statLabel: HTMLElement;
     message: HTMLElement;
     clearBtn: HTMLButtonElement;
-    removeBtn: HTMLButtonElement;
+    // The accessible name of the input, which the clear button repeats: "Hand, card 2 of 5".
+    label: string;
     // The card the slot shows, and the guard that stops a late name lookup from overwriting the slot.
     card: CardSummary | null;
     lookup: Latest;
     // The card saved for this slot, until it is put back or the user touches the slot: whatever the user did
-    // meanwhile wins over the saved hand.
+    // meanwhile wins over the saved board.
     savedId: number | null;
 }
 
-type SlotProblem = "invalid" | "lookup-failed";
+interface ZoneElements {
+    slots: HTMLElement;
+    count: HTMLElement;
+    clearBtn: HTMLButtonElement;
+}
+
+// "not-monster" and "not-spell" are the wrong-kind alerts of a typed zone (D5).
+type SlotProblem = "invalid" | "lookup-failed" | "not-monster" | "not-spell";
+
+const PROBLEM_KEYS: Record<SlotProblem, string> = {
+    invalid: "card.label.invalid",
+    "lookup-failed": "card.label.lookup-failed",
+    "not-monster": "calculator.slot.not-monster",
+    "not-spell": "calculator.slot.not-spell",
+};
 
 const ALERT_CLASS = "p-3 mb-4 bg-wb-well text-wb-red border-2 border-wb-red font-body font-bold text-sm";
 const SLOT_ALERT_CLASS = "mt-1 text-xs text-wb-red font-bold font-body text-center leading-tight";
@@ -42,8 +76,8 @@ const STATUS_CLASS = "text-center font-body text-sm text-wb-mute my-4";
 const NONE_CLASS = "text-center font-body text-sm text-wb-mute mb-3";
 const NOTE_CLASS = "sink p-3 mb-4 text-wb-ink font-body text-sm";
 
-// The frame colour of a hand tile (D7): a hand card is never a fusion result. Literal strings, so Tailwind
-// sees every class.
+// The frame colour of a slot tile (D7): a card on the board is never a fusion result. Literal strings, so
+// Tailwind sees every class.
 const TILE_CLASS =
     "slot-tile relative flex flex-col aspect-[2/3] p-1 border-2 border-wb-ink text-wb-ink " +
     "shadow-[inset_1px_1px_0_#fff,inset_-1px_-1px_0_rgb(0_0_0/0.25)]";
@@ -52,6 +86,13 @@ const TILE_FRAME_CLASS = {
     equip: "bg-card-equip",
     magic: "bg-card-magic",
 } as const;
+
+// The glyph drawn in the empty slots of the monster and the spell/trap zone. Constant markup, no user text.
+const SLOT_GLYPHS: Record<BoardZone, string> = {
+    hand: "",
+    monster: '<path d="M3 15 L13 5 M11 2.5 L15.5 7 M4.5 10 L8 13.5"></path>',
+    spell: '<path d="M9 1.5 L10.6 7.4 L16.5 9 L10.6 10.6 L9 16.5 L7.4 10.6 L1.5 9 L7.4 7.4 Z"></path>',
+};
 
 function tileFrame(card: CardSummary): string {
     if (card.isMonster) return TILE_FRAME_CLASS.monster;
@@ -68,22 +109,34 @@ document.addEventListener("DOMContentLoaded", () => {
     mountCalculatorPage();
 });
 
+function findZoneElements(zone: BoardZone): ZoneElements | null {
+    const root = qs<HTMLElement>(`#zone-${zone}`);
+    if (!root) return null;
+    const slots = qs<HTMLElement>(".zone-slots", root);
+    const count = qs<HTMLElement>(".zone-count", root);
+    const clearBtn = qs<HTMLButtonElement>(".zone-clear", root);
+    return slots && count && clearBtn ? { slots, count, clearBtn } : null;
+}
+
 function mountCalculatorPage(): void {
-    const slotsContainer = qs<HTMLElement>("#hand-slots");
-    const addBtn = qs<HTMLButtonElement>("#addSlotBtn");
+    const zoneEls: Partial<Record<BoardZone, ZoneElements>> = {};
+    for (const zone of ZONES) {
+        const found = findZoneElements(zone);
+        if (found) zoneEls[zone] = found;
+    }
+    const boardCount = qs<HTMLElement>("#board-count");
+    const boardNote = qs<HTMLElement>("#board-note");
     const resetBtn = qs<HTMLButtonElement>("#resetBtn");
     const outputLeft = qs<HTMLElement>("#outputarealeft");
     const outputRight = qs<HTMLElement>("#outputarearight");
     const outputOther = qs<HTMLElement>("#outputareaother");
     const applyHint = qs<HTMLElement>("#fusions-apply-hint");
+    const applyStatus = qs<HTMLElement>("#apply-status");
     const outputRituals = qs<HTMLElement>("#rituals-output");
     const resultsHint = qs<HTMLElement>("#results-hint");
     const resultsPanels = qs<HTMLElement>("#results-panels");
     const resultsError = qs<HTMLElement>("#results-error");
     const resultsStatus = qs<HTMLElement>("#results-status");
-    const addSlotHint = qs<HTMLElement>("#add-slot-hint");
-    const handCount = qs<HTMLElement>("#hand-count");
-    const pips = document.querySelectorAll<HTMLElement>("#hand-meter .pip");
     const answerColumn = qs<HTMLElement>("#answer-column");
     const indexError = qs<HTMLElement>("#index-error");
     const indexRetryBtn = qs<HTMLButtonElement>("#indexRetryBtn");
@@ -91,20 +144,26 @@ function mountCalculatorPage(): void {
     const chainBtn = qs<HTMLButtonElement>("#chainBtn");
     const chainLoading = qs<HTMLElement>("#chain-loading");
     const chainOutput = qs<HTMLElement>("#chain-output");
+    const hand = zoneEls.hand;
+    const monster = zoneEls.monster;
+    const spell = zoneEls.spell;
     if (
-        !slotsContainer ||
-        !addBtn ||
+        !hand ||
+        !monster ||
+        !spell ||
+        !boardCount ||
+        !boardNote ||
+        !resetBtn ||
         !outputLeft ||
         !outputRight ||
         !outputOther ||
         !applyHint ||
+        !applyStatus ||
         !outputRituals ||
         !resultsHint ||
         !resultsPanels ||
         !resultsError ||
         !resultsStatus ||
-        !addSlotHint ||
-        !handCount ||
         !answerColumn ||
         !indexError ||
         !indexRetryBtn ||
@@ -115,35 +174,54 @@ function mountCalculatorPage(): void {
     ) {
         return;
     }
+    const zoneElements: Record<BoardZone, ZoneElements> = { hand, monster, spell };
 
-    // The hand is read from the card index, so the results never wait for the artwork lookups.
-    const idsByNameLower = new Map<string, number>();
-    const namesById = new Map<number, string>();
+    // The board is read from the card index, so the results never wait for the artwork lookups.
+    const entriesByNameLower = new Map<string, CardIndexEntry>();
+    const entriesById = new Map<number, CardIndexEntry>();
     let suggestions: readonly string[] = [];
     let markIndexReady = (): void => {};
     const indexReady = new Promise<void>((resolve) => {
         markIndexReady = resolve;
     });
 
-    const slots: SlotState[] = [];
+    const slots: Record<BoardZone, SlotState[]> = { hand: [], monster: [], spell: [] };
+    const allSlots: SlotState[] = [];
     let nextSlotId = 1;
     const refreshLatest = createLatest();
     const chainLatest = createLatest();
-    // Ordered ids of the hand the results show or are being fetched for; null makes the next refresh fetch.
+    // The board the results show or are being fetched for; null makes the next refresh fetch. Its slot map is
+    // what turns the `from` references of an answer back into slots.
     let shownKey: string | null = null;
-    // Saving waits for the saved hand to be put back: before that the slots are still empty, and saving them
-    // would erase the hand this page is about to restore.
+    let shownBoard: SentBoard | null = null;
+    // Saving waits for the saved board to be put back: before that the slots are still empty, and saving them
+    // would erase the board this page is about to restore.
     let persistReady = false;
+    // Cards of a saved v1 hand past its fifth slot: they find their zone once the index can say what they are.
+    let legacyRest: number[] = [];
 
-    const currentHandIds = (): number[] =>
-        getValidIds(
-            slots.map((s) => s.input.value),
-            idsByNameLower
-        );
+    // The card a slot's text names, if the index knows it.
+    const entryOf = (slot: SlotState): CardIndexEntry | undefined =>
+        entriesByNameLower.get(slot.input.value.trim().toLowerCase());
+
+    const cardOf = (slot: SlotState): SlotCard | null => {
+        const entry = entryOf(slot);
+        return entry ? { id: entry.id, isMonster: entry.isMonster } : null;
+    };
+
+    const boardCards = (): Record<BoardZone, Array<SlotCard | null>> => ({
+        hand: slots.hand.map(cardOf),
+        monster: slots.monster.map(cardOf),
+        spell: slots.spell.map(cardOf),
+    });
+
+    // What the board sends: filled slots that fit their zone (D5), with the map back to the slots.
+    const currentBoard = (): SentBoard => buildBoardRequest(boardCards());
 
     const clearResults = (): void => {
         clear(outputLeft);
         applyHint.hidden = true;
+        applyStatus.textContent = "";
         clear(outputRight);
         hideBlock(outputOther);
         clear(outputRituals);
@@ -167,9 +245,22 @@ function mountCalculatorPage(): void {
 
     const showHint = (): void => setStatus(t("calculator.results.hint"));
 
-    // On a phone the answer column moves above the hand only while it has something to show.
+    // On a phone the answer column moves above the board only while it has something to show.
     const setHasAnswer = (hasAnswer: boolean): void => {
         answerColumn.dataset.hasAnswer = String(hasAnswer);
+    };
+
+    // The cards in each zone and in all, as the live region and the bars say them.
+    const updateCounts = (sent: SentBoard): void => {
+        for (const zone of ZONES) {
+            zoneElements[zone].count.textContent = t("calculator.zone.count", {
+                count: sent.slots[zone].length,
+                max: ZONE_SIZE,
+            });
+        }
+        // The text is written only when it changes, so the polite region does not repeat itself.
+        const total = t("calculator.board.total", { count: sent.count, max: BOARD_SIZE });
+        if (boardCount.textContent !== total) boardCount.textContent = total;
     };
 
     const renderResults = (result: CalculatorResponse): void => {
@@ -187,7 +278,9 @@ function mountCalculatorPage(): void {
             );
         } else {
             const key =
-                others.length === 0 ? "calculator.results.no-fusions" : "calculator.results.no-monster-fusions";
+                others.length === 0
+                    ? "calculator.results.no-fusions"
+                    : "calculator.results.no-monster-fusions";
             appendNone(outputLeft, t(key));
         }
         showOtherResults(outputOther, others, applyFusion);
@@ -198,7 +291,7 @@ function mountCalculatorPage(): void {
         resultsPanels.hidden = false;
     };
 
-    // The chain belongs to the hand it was made for: drop its output and any request still in flight.
+    // The chain belongs to the board it was made for: drop its output and any request still in flight.
     const resetChain = (): void => {
         chainLatest.cancel();
         clear(chainOutput);
@@ -208,23 +301,30 @@ function mountCalculatorPage(): void {
     };
 
     // The best play needs the best single fusion of the results to say how much better it is. What the
-    // calculation of the hand shown settled with (null when it failed) is kept for the retry of the chain.
+    // calculation of the board shown settled with (null when it failed) is kept for the retry of the chain.
     let calculation: Promise<CalculatorResponse | null> = Promise.resolve(null);
 
     // The chain is searched together with the results and, as the answer, waits for them to settle (not to
     // succeed): a failed calculation only costs the gain line. One failing never hides the other.
-    const runChainSearch = async (handIds: number[]): Promise<void> => {
+    const runChainSearch = async (sent: SentBoard): Promise<void> => {
         const run = chainLatest.begin();
         clear(chainOutput);
         chainLoading.textContent = t("calculator.chain.loading");
         chainLoading.classList.remove("hidden");
         setBusy(chainBtn, true);
         try {
-            const [res, calculated] = await Promise.all([chainSearch(handIds, run.signal), calculation]);
+            const [res, calculated] = await Promise.all([
+                chainSearch(sent.request, run.signal),
+                calculation,
+            ]);
             if (!run.isCurrent()) return;
             if (res.truncated) appendNote(chainOutput, t("calculator.chain.truncated"));
             if (res.chains.length === 0) chainOutput.append(t("calculator.chain.no-result"));
-            else chainOutput.appendChild(renderChains(res.chains, bestSingleFusion(calculated), handIds));
+            else {
+                chainOutput.appendChild(
+                    renderChains(res.chains, bestSingleFusion(calculated), sent.request.handIds)
+                );
+            }
             chainBtn.classList.add("hidden");
         } catch (err) {
             if (!run.isCurrent()) return;
@@ -235,33 +335,34 @@ function mountCalculatorPage(): void {
         setBusy(chainBtn, false);
     };
 
-    // Only the latest call touches the page. A change event that repeats the hand shown is a no-op.
+    // Only the latest call touches the page. A change event that repeats the board shown is a no-op.
     const refresh = async (): Promise<void> => {
-        const handIds = currentHandIds();
-        const handKey = handIds.join(",");
-        if (handKey === shownKey) return;
-        shownKey = handKey;
+        const sent = currentBoard();
+        updateCounts(sent);
+        if (sent.key === shownKey) return;
+        shownKey = sent.key;
+        shownBoard = sent;
         resetChain();
         const run = refreshLatest.begin();
         clearResults();
-        setHasAnswer(handIds.length >= 2);
-        chainSection.classList.toggle("hidden", handIds.length < 2);
-        if (handIds.length < 2) {
+        setHasAnswer(sent.count >= 2);
+        chainSection.classList.toggle("hidden", sent.count < 2);
+        if (sent.count < 2) {
             showHint();
             return;
         }
         setStatus(t("calculator.results.loading"));
-        const calculating = calculate(handIds, run.signal);
+        const calculating = calculate(sent.request, run.signal);
         calculation = calculating.catch(() => null);
-        void runChainSearch(handIds);
+        void runChainSearch(sent);
         let result: CalculatorResponse;
         try {
             result = await calculating;
-        } catch {
+        } catch (err) {
             if (!run.isCurrent()) return;
             shownKey = null;
             setStatus(null);
-            appendAlert(resultsError, t("calculator.results.error"), ALERT_CLASS);
+            appendAlert(resultsError, describeBoardError(err, "calculator.results.error"), ALERT_CLASS);
             return;
         }
         if (!run.isCurrent()) return;
@@ -274,14 +375,14 @@ function mountCalculatorPage(): void {
         try {
             const cardsIndex = await getCardsIndex();
             for (const c of cardsIndex) {
-                idsByNameLower.set(c.name.toLowerCase(), c.id);
-                namesById.set(c.id, c.name);
+                entriesByNameLower.set(c.name.toLowerCase(), c);
+                entriesById.set(c.id, c);
             }
             suggestions = cardsIndex.map((c) => c.name);
             indexError.classList.add("hidden");
-            restoreHand();
+            restoreBoard();
             markIndexReady();
-            // Names may have been typed while the index was loading, and a restored hand needs its results.
+            // Names may have been typed while the index was loading, and a restored board needs its results.
             void refresh();
         } catch {
             indexError.classList.remove("hidden");
@@ -290,34 +391,20 @@ function mountCalculatorPage(): void {
         }
     };
 
-    // At the cap "Add card" is off and the hint says why; a slot removed brings it back.
-    const updateSlotControls = (): void => {
-        const removable = canRemoveSlot(slots.length);
-        for (const slot of slots) {
-            slot.removeBtn.classList.toggle("hidden", !removable);
-        }
-        const addable = canAddSlot(slots.length);
-        addBtn.disabled = !addable;
-        handCount.textContent = t("calculator.hand.count", { count: slots.length, max: MAX_HAND_SIZE });
-        // Decorative: the count above is the accessible value. One pip per slot in use.
-        pips.forEach((pip, i) => {
-            pip.dataset.on = String(i < slots.length);
-        });
-        addSlotHint.textContent = addable ? "" : t("calculator.hand.max-reached", { max: MAX_HAND_SIZE });
-    };
-
     function setSlotCard(slot: SlotState, card: CardSummary | null): void {
         slot.card = card;
         setSlotProblem(slot, null);
         if (card) {
             slot.imgWrapper.innerHTML = "";
-            slot.imgWrapper.appendChild(
-                createCardImg(card.name, card.imageCode, "w-full h-full")
-            );
+            slot.imgWrapper.appendChild(createCardImg(card.name, card.imageCode, "w-full h-full"));
             slot.nameLabel.textContent = card.name;
             slot.statLabel.textContent = tileStat(card);
             slot.tile.className = `${TILE_CLASS} ${tileFrame(card)}`;
             slot.input.value = card.name;
+            slot.clearBtn.setAttribute(
+                "aria-label",
+                t("calculator.slot.clear", { slot: slot.label, card: card.name })
+            );
             slot.emptyState.classList.add("hidden");
             slot.filledState.classList.remove("hidden");
         } else {
@@ -340,58 +427,103 @@ function mountCalculatorPage(): void {
             setSlotCard(slot, null);
             return;
         }
+        // A card of the wrong kind for its zone is flagged and kept out of the request (D5): the index says
+        // what it is, so there is nothing to look up.
+        const entry = entryOf(slot);
+        if (entry && !fitsZone(slot.zone, entry.isMonster)) {
+            setSlotProblem(slot, wrongKindProblem(slot.zone));
+            return;
+        }
         try {
             const card = await getCardByName(value, run.signal);
             if (!run.isCurrent()) return;
-            if (card) setSlotCard(slot, card);
-            else setSlotProblem(slot, "invalid");
+            if (!card) setSlotProblem(slot, "invalid");
+            else if (!fitsZone(slot.zone, card.isMonster)) setSlotProblem(slot, wrongKindProblem(slot.zone));
+            else setSlotCard(slot, card);
         } catch {
             if (run.isCurrent()) setSlotProblem(slot, "lookup-failed");
         }
     };
 
-    // Takes a fusion from the results into the hand like a user edit: the two cards leave, the result sits
-    // in the slot of the first one and the second slot stays, empty. The results are then asked for again.
-    const applyFusion = (fusion: FusionExpanded): void => {
-        const ids = getSlotIds(
-            slots.map((s) => s.input.value),
-            idsByNameLower
-        );
-        const pair = findFusionSlots(ids, fusion.card1.id, fusion.card2.id);
-        // The hand changed since the results were drawn: nothing to apply, the next refresh will redraw.
-        if (!pair) return;
-        const targetSlot = slots[pair[0]];
-        const spentSlot = slots[pair[1]];
-        if (!targetSlot || !spentSlot) return;
-        // A late name lookup must not overwrite either slot, and the saved hand no longer applies to them.
-        for (const slot of [targetSlot, spentSlot]) {
-            slot.lookup.cancel();
-            slot.savedId = null;
-        }
-        setSlotCard(targetSlot, fusion.result);
-        setSlotCard(spentSlot, null);
-        persist();
-        // The row that had focus is redrawn away. Once the results are back, put the keyboard on the fusions
-        // if there are still some to choose, or on the hand if not; never take focus the user moved meanwhile.
-        void refresh().then(() => {
-            if (document.activeElement && document.activeElement !== document.body) return;
-            qs<HTMLElement>(resultsPanels.hidden ? "#hand-title" : "#fusions-title")?.focus();
+    // The board is saved from the names in the inputs, through the index: it never waits for an artwork
+    // lookup, and a name the index does not know, or a card of the wrong kind for its zone, is left out.
+    const persist = (): void => {
+        if (!persistReady) return;
+        const idOf = (slot: SlotState): number | null => {
+            const card = cardOf(slot);
+            return card && fitsZone(slot.zone, card.isMonster) ? card.id : null;
+        };
+        saveBoard({
+            hand: slots.hand.map(idOf),
+            monster: slots.monster.map(idOf),
+            spell: slots.spell.map(idOf),
         });
     };
 
-    // The hand is saved from the names in the inputs, through the index: it never waits for an artwork
-    // lookup, and a name the index does not know is left out.
-    const persist = (): void => {
-        if (!persistReady) return;
-        const names = slots.map((s) => s.input.value);
-        saveHand(getSlotIds(names, idsByNameLower));
+    const forgetSlot = (slot: SlotState): void => {
+        // A late name lookup must not overwrite the slot, and the saved board no longer applies to it.
+        slot.lookup.cancel();
+        slot.savedId = null;
+    };
+
+    const emptySlot = (slot: SlotState): void => {
+        forgetSlot(slot);
+        setSlotCard(slot, null);
+    };
+
+    // D6: takes a fusion from the results onto the board like a user edit, then asks for the results again.
+    const applyFusion = (fusion: FusionExpanded): void => {
+        const sent = shownBoard;
+        // Only an answer made for the board shown has the slots to apply (`from` is there in board mode).
+        if (!sent || !fusion.from) return;
+        const now: Record<BoardZone, Array<number | null>> = {
+            hand: slots.hand.map((slot) => cardOf(slot)?.id ?? null),
+            monster: slots.monster.map((slot) => cardOf(slot)?.id ?? null),
+            spell: slots.spell.map((slot) => cardOf(slot)?.id ?? null),
+        };
+        const monsterFree = slots.monster.map(
+            (slot) => slot.input.value.trim() === "" && slot.savedId === null
+        );
+        const plan = planFusion(
+            {
+                from: fusion.from,
+                operandIds: [fusion.card1.id, fusion.card2.id],
+                resultIsMonster: fusion.result.isMonster,
+            },
+            sent,
+            now,
+            monsterFree
+        );
+        // The board changed since the results were drawn: nothing to apply, the next refresh will redraw.
+        if (plan.kind === "stale") return;
+        if (plan.kind === "zone-full") {
+            applyStatus.textContent = t("calculator.results.zone-full");
+            return;
+        }
+        applyStatus.textContent = "";
+        const target = slots[plan.place.zone][plan.place.slot];
+        if (!target) return;
+        for (const address of plan.clear) {
+            const spent = slots[address.zone][address.slot];
+            if (spent) emptySlot(spent);
+        }
+        forgetSlot(target);
+        setSlotCard(target, fusion.result);
+        persist();
+        // The row that had focus is redrawn away. Once the results are back, put the keyboard on the fusions
+        // if there are still some to choose, or on the board if not; never take focus the user moved meanwhile.
+        void refresh().then(() => {
+            if (document.activeElement && document.activeElement !== document.body) return;
+            qs<HTMLElement>(resultsPanels.hidden ? "#board-title" : "#fusions-title")?.focus();
+        });
     };
 
     // Puts the saved cards back once the index can name them, and only then lets the page save. A slot the
     // user touched has forgotten its saved card, so nothing typed or cleared meanwhile is overwritten.
-    const restoreHand = (): void => {
-        for (const slot of slots) {
-            const name = slot.savedId === null ? undefined : namesById.get(slot.savedId);
+    const restoreBoard = (): void => {
+        placeLegacyCards();
+        for (const slot of allSlots) {
+            const name = slot.savedId === null ? undefined : entriesById.get(slot.savedId)?.name;
             slot.savedId = null;
             if (name === undefined) continue;
             slot.input.value = name;
@@ -401,22 +533,55 @@ function mountCalculatorPage(): void {
         persist();
     };
 
-    // The cap is enforced here, not only by the disabled button, so no caller can grow the hand past it.
-    const addSlot = (savedId: number | null = null): void => {
-        if (!canAddSlot(slots.length)) return;
-        const n = slots.length + 1;
+    // D7: the cards of a v1 hand past its fifth slot go to the monster or the spell/trap zone by kind, in
+    // order, into the slots nobody has used. The ones that find no room are named once, in a note.
+    const placeLegacyCards = (): void => {
+        if (legacyRest.length === 0) return;
+        const rest = legacyRest;
+        legacyRest = [];
+        const free = (zone: BoardZone): number[] =>
+            slots[zone].filter((s) => s.savedId === null && s.input.value.trim() === "").map((s) => s.index);
+        const placement = placeLegacyRest(rest, (id) => entriesById.get(id)?.isMonster, {
+            monster: free("monster"),
+            spell: free("spell"),
+        });
+        for (const zone of ["monster", "spell"] as const) {
+            for (const { slot, id } of placement[zone]) {
+                const target = slots[zone][slot];
+                if (target) target.savedId = id;
+            }
+        }
+        const names = placement.leftover.flatMap((id) => entriesById.get(id)?.name ?? []);
+        if (names.length > 0) {
+            boardNote.textContent = t("calculator.board.migrated", { cards: names.join(", ") });
+            boardNote.hidden = false;
+        }
+    };
 
-        const cell = document.createElement("div");
-        cell.className = "hand-slot relative";
+    const createSlot = (zone: BoardZone, index: number, savedId: number | null): SlotState => {
+        const label = t(`calculator.slot.${zone}`, { n: index + 1, max: ZONE_SIZE });
 
-        // Empty state: a sunken tile holding the label and the input.
+        const cell = document.createElement("li");
+        cell.className = "board-slot relative min-w-0";
+        cell.dataset.zone = zone;
+
+        // Empty state: a sunken tile holding the hint and the input.
         const emptyState = document.createElement("div");
         emptyState.className =
             "slot-empty w-full aspect-[2/3] bg-wb-empty border-2 border-wb-lo border-b-wb-hi border-r-wb-hi " +
-            "flex flex-col items-center justify-center gap-1 p-1.5 cursor-text";
+            "flex flex-col items-center justify-center gap-1.5 p-1.5 text-wb-mute cursor-text";
+
+        if (SLOT_GLYPHS[zone] !== "") {
+            const glyph = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            glyph.setAttribute("viewBox", "0 0 18 18");
+            glyph.setAttribute("aria-hidden", "true");
+            glyph.setAttribute("class", "w-[22px] h-[22px] flex-none fill-none stroke-current stroke-[1.6]");
+            glyph.innerHTML = SLOT_GLYPHS[zone];
+            emptyState.appendChild(glyph);
+        }
 
         const emptyLabel = document.createElement("span");
-        emptyLabel.className = "text-[13px] font-bold text-wb-mute font-body text-center leading-tight";
+        emptyLabel.className = "text-[13px] font-bold font-body text-center leading-tight";
         emptyLabel.textContent = t("calculator.slot.empty");
 
         // The suggestion list is absolute with no top: its parent must be a block, not the flex column
@@ -427,13 +592,17 @@ function mountCalculatorPage(): void {
         const input = document.createElement("input");
         input.type = "text";
         input.className = "wb-input w-full min-w-0 px-1.5! text-xs font-body";
-        input.setAttribute("aria-label", t("calculator.slot.label", { n }));
+        input.setAttribute("aria-label", label);
 
         inputBox.appendChild(input);
         emptyState.appendChild(emptyLabel);
         emptyState.appendChild(inputBox);
+        // The whole tile is the field, as the cursor says.
+        emptyState.addEventListener("click", (event) => {
+            if (!inputBox.contains(event.target as Node)) input.focus();
+        });
 
-        // Filled state: the card tile (name strip, art well, stat strip) and the remove "x".
+        // Filled state: the card tile (name strip, art well, stat strip) and its clear "x".
         const filledState = document.createElement("div");
         filledState.className = "slot-filled hidden relative w-full";
 
@@ -442,8 +611,8 @@ function mountCalculatorPage(): void {
 
         const nameLabel = document.createElement("p");
         nameLabel.className =
-            "slot-name m-0 min-h-8 px-1 py-0.5 bg-white/70 font-body font-bold text-xs leading-tight " +
-            "flex items-center [overflow-wrap:anywhere] line-clamp-2";
+            "slot-name m-0 h-9 px-1 py-0.5 bg-white/70 font-body font-bold text-xs leading-tight " +
+            "[overflow-wrap:anywhere] line-clamp-2";
 
         const art = document.createElement("div");
         art.className = "wb-art relative flex-1 min-h-0 my-[3px] overflow-hidden";
@@ -460,13 +629,14 @@ function mountCalculatorPage(): void {
         tile.appendChild(art);
         tile.appendChild(statLabel);
 
-        // A 44px hit area around a 24px ink square, red on hover.
+        // A 44px hit area around a 24px ink square, red on hover. It reaches 4px past the tile on a phone and
+        // 8px on a desktop, inside the gap between two tiles (8px and 10px).
         const clearBtn = document.createElement("button");
         clearBtn.type = "button";
         clearBtn.className =
-            "clear-btn group absolute -top-2.5 -right-2.5 z-10 w-11 h-11 grid place-items-center " +
-            "bg-transparent border-0 p-0 cursor-pointer";
-        clearBtn.setAttribute("aria-label", `${t("calculator.btn.remove-slot")} ${n}`);
+            "clear-btn group absolute -top-1 -right-1 min-[480px]:-top-2 min-[480px]:-right-2 z-10 w-11 h-11 " +
+            "flex items-start justify-end bg-transparent border-0 p-0 cursor-pointer";
+        clearBtn.setAttribute("aria-label", t("calculator.slot.clear", { slot: label, card: "" }));
         const clearMark = document.createElement("span");
         clearMark.className =
             "w-6 h-6 grid place-items-center bg-wb-ink text-white border-2 border-wb-plate " +
@@ -478,27 +648,19 @@ function mountCalculatorPage(): void {
         filledState.appendChild(tile);
         filledState.appendChild(clearBtn);
 
-        // Alert for a name that is invalid or could not be looked up (below both states)
+        // Alert for a name that is invalid, could not be looked up or is of the wrong kind (below both states)
         const message = document.createElement("div");
         message.id = `slot-message-${nextSlotId++}`;
         message.className = "slot-message w-full";
 
-        // Remove slot button (below both states, only when canRemoveSlot)
-        const removeBtn = document.createElement("button");
-        removeBtn.type = "button";
-        removeBtn.className =
-            "remove-btn hidden mt-1 w-full min-h-[44px] px-1 text-xs font-bold text-wb-red " +
-            "hover:bg-wb-plate-hover underline font-body cursor-pointer";
-        removeBtn.textContent = `− ${t("calculator.btn.remove-slot")}`;
-        removeBtn.setAttribute("aria-label", `${t("calculator.btn.remove-slot")} ${n}`);
-
         cell.appendChild(emptyState);
         cell.appendChild(filledState);
         cell.appendChild(message);
-        cell.appendChild(removeBtn);
-        slotsContainer.appendChild(cell);
+        zoneElements[zone].slots.appendChild(cell);
 
         const state: SlotState = {
+            zone,
+            index,
             cell,
             input,
             emptyState,
@@ -509,12 +671,13 @@ function mountCalculatorPage(): void {
             statLabel,
             message,
             clearBtn,
-            removeBtn,
+            label,
             card: null,
             lookup: createLatest(),
             savedId,
         };
-        slots.push(state);
+        slots[zone].push(state);
+        allSlots.push(state);
 
         const commit = (): void => {
             void updateSlotCard(state);
@@ -537,42 +700,35 @@ function mountCalculatorPage(): void {
         input.addEventListener("change", commit);
 
         clearBtn.addEventListener("click", () => {
-            state.lookup.cancel();
-            setSlotCard(state, null);
+            emptySlot(state);
             void refresh();
             persist();
         });
 
-        removeBtn.addEventListener("click", () => {
-            const idx = slots.indexOf(state);
-            if (idx === -1) return;
-            state.lookup.cancel();
-            slots.splice(idx, 1);
-            slotsContainer.removeChild(cell);
-            updateSlotControls();
-            void refresh();
-            persist();
-        });
-
-        updateSlotControls();
+        return state;
     };
 
-    addBtn.addEventListener("click", () => {
-        addSlot();
-        persist();
-    });
     indexRetryBtn.addEventListener("click", () => void loadIndex());
     // Only after a chain error: the results are not asked for again.
-    chainBtn.addEventListener("click", () => void runChainSearch(currentHandIds()));
+    chainBtn.addEventListener("click", () => void runChainSearch(currentBoard()));
 
-    resetBtn?.addEventListener("click", () => {
+    for (const zone of ZONES) {
+        zoneElements[zone].clearBtn.addEventListener("click", () => {
+            for (const slot of slots[zone]) emptySlot(slot);
+            void refresh();
+            persist();
+        });
+    }
+
+    resetBtn.addEventListener("click", () => {
         refreshLatest.cancel();
         shownKey = null;
-        for (const slot of slots) {
-            slot.lookup.cancel();
-            slot.savedId = null;
-            setSlotCard(slot, null);
-        }
+        shownBoard = null;
+        legacyRest = [];
+        boardNote.hidden = true;
+        boardNote.textContent = "";
+        for (const slot of allSlots) emptySlot(slot);
+        updateCounts(currentBoard());
         clearResults();
         setHasAnswer(false);
         chainSection.classList.add("hidden");
@@ -581,22 +737,44 @@ function mountCalculatorPage(): void {
         persist();
     });
 
-    // The slots come back as they were saved; their cards wait for the index (see restoreHand).
-    const savedHand = loadHand() ?? Array.from({ length: MIN_HAND_SIZE }, () => null);
-    for (const savedId of savedHand) addSlot(savedId);
+    // The slots come back as they were saved; their cards wait for the index (see restoreBoard). Without a
+    // v2 board, the hand of an older version supplies the first five slots now and the rest of its cards later.
+    const savedBoard = loadBoard() ?? boardFromLegacyHand();
+    for (const zone of ZONES) {
+        for (let index = 0; index < ZONE_SIZE; index++)
+            createSlot(zone, index, savedBoard[zone][index] ?? null);
+    }
+    updateCounts(currentBoard());
     showHint();
     void loadIndex();
+
+    function boardFromLegacyHand(): ZoneRecord<number | null> {
+        const board = emptyZones<number | null>(null);
+        const old = loadHand();
+        if (old === null) return board;
+        const split = splitLegacyHand(old);
+        legacyRest = split.rest;
+        board.hand = split.hand;
+        return board;
+    }
 }
 
-// Marks the input invalid only for an unknown name; a failed lookup says nothing about the name.
+function wrongKindProblem(zone: BoardZone): SlotProblem {
+    return zone === "monster" ? "not-monster" : "not-spell";
+}
+
+// Marks the input invalid for an unknown name or a card of the wrong kind; a failed lookup says nothing about
+// the name.
 function setSlotProblem(slot: SlotState, problem: SlotProblem | null): void {
     clear(slot.message);
     slot.input.removeAttribute("aria-describedby");
-    if (problem === "invalid") slot.input.setAttribute("aria-invalid", "true");
-    else slot.input.removeAttribute("aria-invalid");
+    if (problem === "invalid" || problem === "not-monster" || problem === "not-spell") {
+        slot.input.setAttribute("aria-invalid", "true");
+    } else {
+        slot.input.removeAttribute("aria-invalid");
+    }
     if (problem === null) return;
-    const key = problem === "invalid" ? "card.label.invalid" : "card.label.lookup-failed";
-    appendAlert(slot.message, t(key), SLOT_ALERT_CLASS);
+    appendAlert(slot.message, t(PROBLEM_KEYS[problem]), SLOT_ALERT_CLASS);
     slot.input.setAttribute("aria-describedby", slot.message.id);
 }
 
@@ -619,11 +797,18 @@ function bestSingleFusion(result: CalculatorResponse | null): CardSummary | null
     return result?.fusions.find((fusion) => fusion.result.isMonster)?.result ?? null;
 }
 
-function describeChainError(err: unknown): string {
-    if (err instanceof ApiError && err.status === 400 && err.code === "hand-too-large") {
-        return t("calculator.chain.hand-too-large", { max: MAX_HAND_SIZE });
+// The two board errors the server can answer with have a sentence of their own; anything else gets the
+// generic one of the caller.
+function describeBoardError(err: unknown, fallbackKey: string): string {
+    if (err instanceof ApiError && err.status === 400) {
+        if (err.code === "board-too-large") return t("calculator.error.board-too-large", { max: ZONE_SIZE });
+        if (err.code === "invalid-zones") return t("calculator.error.invalid-zones");
     }
-    return t("calculator.chain.error");
+    return t(fallbackKey);
+}
+
+function describeChainError(err: unknown): string {
+    return describeBoardError(err, "calculator.chain.error");
 }
 
 // A <p>, not a <div>, so the entries of a column stay exactly its <div> children.
@@ -669,7 +854,7 @@ function showOtherResults(
     where.classList.remove("hidden");
 }
 
-// The panel stays on screen whatever the hand: with no ritual it says what a ritual needs.
+// The panel stays on screen whatever the board: with no ritual it says what a ritual needs.
 function showRituals(where: HTMLElement, rituals: readonly RitualExpanded[]): void {
     if (rituals.length === 0) {
         const none = document.createElement("p");

@@ -1,7 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { BOARD_SIZE, ZONES, ZONE_SIZE } from "./helpers/board.js";
 
-const START_SLOTS = 5;
-const MAX_SLOTS = 12;
 const PAIR = ["Mystical Elf", "Mushroom Man"] as const;
 
 test.beforeEach(async ({ page }) => {
@@ -10,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 function slotAt(page: Page, index: number): Locator {
-    return page.locator(".hand-slot").nth(index);
+    return page.locator("#zone-hand .board-slot").nth(index);
 }
 
 async function fillSlot(page: Page, index: number, name: string): Promise<void> {
@@ -45,18 +44,24 @@ test.describe("desktop layout", () => {
 
     test("the hand is left of the answer column and both start at the same height", async ({ page }) => {
         await page.goto("/calculator");
-        const hand = await box(page.locator("#hand-section"));
+        const hand = await box(page.locator("#board-section"));
         const answer = await box(page.locator("#answer-column"));
         expect(hand.x + hand.width).toBeLessThanOrEqual(answer.x);
         expect(Math.abs(hand.y - answer.y)).toBeLessThanOrEqual(1);
         expect(answer.width).toBeGreaterThan(hand.width);
     });
 
+    test("the board column is 540 px wide", async ({ page }) => {
+        await page.goto("/calculator");
+        const board = await box(page.locator("#board-section"));
+        expect(board.width).toBeCloseTo(540, 0);
+    });
+
     test("the answer column stays right of the hand once there is an answer", async ({ page }) => {
         await page.goto("/calculator");
         await fillPair(page);
         await expect(page.locator("#answer-column")).toHaveAttribute("data-has-answer", "true");
-        const hand = await box(page.locator("#hand-section"));
+        const hand = await box(page.locator("#board-section"));
         const answer = await box(page.locator("#answer-column"));
         expect(hand.x + hand.width).toBeLessThanOrEqual(answer.x);
         expect(Math.abs(hand.y - answer.y)).toBeLessThanOrEqual(1);
@@ -85,7 +90,7 @@ test.describe("phone order", () => {
         await expect(column).toHaveAttribute("data-has-answer", "false");
         await fillSlot(page, 0, PAIR[0]);
         await expect(column).toHaveAttribute("data-has-answer", "false");
-        const hand = await box(page.locator("#hand-section"));
+        const hand = await box(page.locator("#board-section"));
         const answer = await box(column);
         expect(hand.y + hand.height).toBeLessThanOrEqual(answer.y);
     });
@@ -98,12 +103,12 @@ test.describe("phone order", () => {
         const column = page.locator("#answer-column");
         await expect(column).toHaveAttribute("data-has-answer", "true");
         const answer = await box(column);
-        const hand = await box(page.locator("#hand-section"));
+        const hand = await box(page.locator("#board-section"));
         expect(answer.y + answer.height).toBeLessThanOrEqual(hand.y);
 
         await page.locator("#resetBtn").click();
         await expect(column).toHaveAttribute("data-has-answer", "false");
-        const handAfter = await box(page.locator("#hand-section"));
+        const handAfter = await box(page.locator("#board-section"));
         const answerAfter = await box(column);
         expect(handAfter.y + handAfter.height).toBeLessThanOrEqual(answerAfter.y);
     });
@@ -112,7 +117,7 @@ test.describe("phone order", () => {
         await page.goto("/calculator");
         await fillPair(page);
         const handFirst = await page.evaluate(() => {
-            const hand = document.querySelector("#hand-section");
+            const hand = document.querySelector("#board-section");
             const answer = document.querySelector("#answer-column");
             if (!hand || !answer) return false;
             return Boolean(hand.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -121,42 +126,135 @@ test.describe("phone order", () => {
     });
 });
 
-test.describe("slot counter", () => {
-    test("reads five of twelve slots on a fresh page and follows add and remove", async ({ page }) => {
+// Where the first row of a zone ends: how many slots share the height of the first one.
+async function slotsInFirstRow(page: Page, zone: string): Promise<number> {
+    const slots = page.locator(`#zone-${zone} .board-slot`);
+    const first = await box(slots.first());
+    let count = 0;
+    for (let i = 0; i < (await slots.count()); i++) {
+        const next = await box(slots.nth(i));
+        if (Math.abs(next.y - first.y) <= 1) count++;
+    }
+    return count;
+}
+
+async function hasHorizontalScroll(page: Page): Promise<boolean> {
+    return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+}
+
+test.describe("board layout at 1280 px", () => {
+    test.use({ viewport: { width: 1280, height: 900 } });
+
+    test("shows the three windows one under the other, five slots across in each", async ({ page }) => {
         await page.goto("/calculator");
-        const count = page.locator("#hand-count");
-        await expect(count).toHaveText(`${START_SLOTS} de ${MAX_SLOTS} casillas`);
-        await page.locator("#addSlotBtn").click();
-        await expect(count).toHaveText(`${START_SLOTS + 1} de ${MAX_SLOTS} casillas`);
-        await page.locator(".remove-btn").first().click();
-        await expect(count).toHaveText(`${START_SLOTS} de ${MAX_SLOTS} casillas`);
+        const hand = await box(page.locator("#zone-hand"));
+        const monsters = await box(page.locator("#zone-monster"));
+        const spells = await box(page.locator("#zone-spell"));
+        expect(hand.y + hand.height).toBeLessThanOrEqual(monsters.y);
+        expect(monsters.y + monsters.height).toBeLessThanOrEqual(spells.y);
+        for (const zone of ZONES) expect(await slotsInFirstRow(page, zone)).toBe(5);
+        expect(await hasHorizontalScroll(page)).toBe(false);
     });
 
-    test("counts slots, not cards, and reaches the cap", async ({ page }) => {
+    test("reaches 8 px past a filled tile with a 44 px clear button, inside the gap between two tiles", async ({
+        page,
+    }) => {
         await page.goto("/calculator");
         await fillSlot(page, 0, PAIR[0]);
-        await expect(page.locator("#hand-count")).toHaveText(`${START_SLOTS} de ${MAX_SLOTS} casillas`);
-        while ((await page.locator(".hand-slot").count()) < MAX_SLOTS)
-            await page.locator("#addSlotBtn").click();
-        await expect(page.locator("#hand-count")).toHaveText(`${MAX_SLOTS} de ${MAX_SLOTS} casillas`);
+        const slot = slotAt(page, 0);
+        const tile = await box(slot.locator(".slot-tile"));
+        const clear = await box(slot.locator(".clear-btn"));
+        expect(clear.width).toBeCloseTo(44, 0);
+        expect(clear.height).toBeCloseTo(44, 0);
+        expect(clear.x + clear.width - (tile.x + tile.width)).toBeCloseTo(8, 0);
+        expect(tile.y - clear.y).toBeCloseTo(8, 0);
+    });
+});
+
+test.describe("board layout at 375 px", () => {
+    test.use({ viewport: { width: 375, height: 812 } });
+
+    test("has no horizontal scroll, even with a card in every slot of the board", async ({ page }) => {
+        await page.goto("/calculator");
+        await fillSlot(page, 0, PAIR[0]);
+        expect(await hasHorizontalScroll(page)).toBe(false);
+        for (const zone of ZONES) {
+            const window = await box(page.locator(`#zone-${zone}`));
+            expect(window.x).toBeGreaterThanOrEqual(0);
+            expect(window.x + window.width).toBeLessThanOrEqual(375);
+        }
     });
 
-    test("restores the counter of a saved hand with extra slots", async ({ page }) => {
+    test("lays the slots out three and two", async ({ page }) => {
         await page.goto("/calculator");
-        await page.locator("#addSlotBtn").click();
-        await page.locator("#addSlotBtn").click();
-        await expect(page.locator("#hand-count")).toHaveText(`${START_SLOTS + 2} de ${MAX_SLOTS} casillas`);
+        for (const zone of ZONES) expect(await slotsInFirstRow(page, zone)).toBe(3);
+    });
+
+    test("keeps the clear button inside 4 px past the tile, so its 44 px stay near it", async ({ page }) => {
+        await page.goto("/calculator");
         await fillSlot(page, 0, PAIR[0]);
-        await page.reload();
-        await expect(page.locator("#hand-count")).toHaveText(`${START_SLOTS + 2} de ${MAX_SLOTS} casillas`);
+        const slot = slotAt(page, 0);
+        const tile = await box(slot.locator(".slot-tile"));
+        const clear = await box(slot.locator(".clear-btn"));
+        expect(clear.width).toBeCloseTo(44, 0);
+        expect(clear.x + clear.width - (tile.x + tile.width)).toBeCloseTo(4, 0);
+        expect(tile.y - clear.y).toBeCloseTo(4, 0);
+    });
+});
+
+test.describe("board layout between a phone and a desktop", () => {
+    test("is full width and five slots across from 480 px, with the zone grids capped near 560 px", async ({
+        page,
+    }) => {
+        await page.setViewportSize({ width: 480, height: 900 });
+        await page.goto("/calculator");
+        for (const zone of ZONES) expect(await slotsInFirstRow(page, zone)).toBe(5);
+        expect(await hasHorizontalScroll(page)).toBe(false);
+
+        await page.setViewportSize({ width: 1000, height: 900 });
+        const board = await box(page.locator("#board-section"));
+        const win = await box(page.locator("#zone-hand"));
+        const grid = await box(page.locator("#zone-hand .zone-slots"));
+        expect(win.width).toBeCloseTo(board.width, 0);
+        expect(board.width).toBeGreaterThan(900);
+        expect(grid.width).toBeLessThanOrEqual(560);
+    });
+});
+
+test.describe("board counters", () => {
+    test("read none of fifteen cards on a fresh page, and none of five in each zone", async ({ page }) => {
+        await page.goto("/calculator");
+        await expect(page.locator("#board-count")).toHaveText(`0 de ${BOARD_SIZE} cartas`);
+        for (const zone of ZONES) {
+            await expect(page.locator(`#zone-${zone} .zone-count`)).toHaveText(`0 de ${ZONE_SIZE}`);
+        }
+    });
+
+    test("count the cards, zone by zone and in all", async ({ page }) => {
+        await page.goto("/calculator");
+        await fillSlot(page, 0, PAIR[0]);
+        await fillSlot(page, 1, PAIR[1]);
+        await expect(page.locator("#zone-hand .zone-count")).toHaveText("2 de 5");
+        await expect(page.locator("#zone-monster .zone-count")).toHaveText("0 de 5");
+        await expect(page.locator("#board-count")).toHaveText("2 de 15 cartas");
+        await page.locator("#zone-monster .board-slot").first().locator("input").fill("Celtic Guardian");
+        await page.locator("#zone-monster .board-slot").first().locator("input").dispatchEvent("change");
+        await expect(page.locator("#zone-monster .zone-count")).toHaveText("1 de 5");
+        await expect(page.locator("#board-count")).toHaveText("3 de 15 cartas");
+    });
+
+    test("is the polite live region of the board", async ({ page }) => {
+        await page.goto("/calculator");
+        await expect(page.locator("#board-count")).toHaveAttribute("aria-live", "polite");
     });
 
     test.describe("in English", () => {
         test.use({ locale: "en-US", extraHTTPHeaders: { "accept-language": "en-US,en;q=0.9" } });
 
-        test("reads slots in English", async ({ page }) => {
+        test("read the counts in English", async ({ page }) => {
             await page.goto("/calculator");
-            await expect(page.locator("#hand-count")).toHaveText(`${START_SLOTS} of ${MAX_SLOTS} slots`);
+            await expect(page.locator("#board-count")).toHaveText(`0 of ${BOARD_SIZE} cards`);
+            await expect(page.locator("#zone-hand .zone-count")).toHaveText(`0 of ${ZONE_SIZE}`);
         });
     });
 });
@@ -174,22 +272,38 @@ test.describe("the Workbench frame", () => {
         await expect(page.getByText("Introduce las cartas que tienes.")).toBeVisible();
     });
 
-    test("puts the hand in a panel with a grey bar that holds the title and the count", async ({ page }) => {
+    test("puts each zone in a window: grey for the hand, blue for the monsters, pink for the spells", async ({
+        page,
+    }) => {
         await page.goto("/calculator");
-        expect(await bar(page, "#hand-section .win-bar")).toBe("rgb(60, 62, 69)");
-        await expect(page.locator("#hand-section .win-bar h2")).toHaveText("Tu mano");
-        await expect(page.locator("#hand-section .win-bar #hand-count")).toBeVisible();
+        expect(await bar(page, "#zone-hand .win-bar")).toBe("rgb(60, 62, 69)");
+        expect(await bar(page, "#zone-monster .win-bar")).toBe("rgb(31, 70, 176)");
+        expect(await bar(page, "#zone-spell .win-bar")).toBe("rgb(156, 34, 102)");
+        await expect(page.locator("#zone-hand .win-bar h3")).toHaveText("Mano");
+        await expect(page.locator("#zone-monster .win-bar h3")).toHaveText("Zona de monstruos");
+        await expect(page.locator("#zone-spell .win-bar h3")).toHaveText("Zona de magias y trampas");
+        for (const zone of ZONES) {
+            await expect(page.locator(`#zone-${zone} .win-bar .zone-count`)).toBeVisible();
+            await expect(page.locator(`#zone-${zone} .win-bar .zone-clear`)).toHaveText("Vaciar");
+        }
     });
 
-    test("shows the slots in use as filled pips of a twelve pip meter", async ({ page }) => {
+    test("shows a visible heading above the windows and Reiniciar below them", async ({ page }) => {
         await page.goto("/calculator");
-        const filled = page.locator('#hand-meter .pip[data-on="true"]');
-        await expect(page.locator("#hand-meter .pip")).toHaveCount(MAX_SLOTS);
-        await expect(filled).toHaveCount(START_SLOTS);
-        await page.locator("#addSlotBtn").click();
-        await expect(filled).toHaveCount(START_SLOTS + 1);
-        await page.locator(".remove-btn").first().click();
-        await expect(filled).toHaveCount(START_SLOTS);
+        const heading = await box(page.locator("#board-title"));
+        const hand = await box(page.locator("#zone-hand"));
+        const spells = await box(page.locator("#zone-spell"));
+        const reset = await box(page.locator("#resetBtn"));
+        await expect(page.locator("#board-title")).toHaveText("Tu tablero");
+        expect(heading.y + heading.height).toBeLessThanOrEqual(hand.y);
+        expect(spells.y + spells.height).toBeLessThanOrEqual(reset.y);
+    });
+
+    test("puts the monster and spell slots in a sunken well, not the hand", async ({ page }) => {
+        await page.goto("/calculator");
+        await expect(page.locator("#zone-monster .sink")).toHaveCount(1);
+        await expect(page.locator("#zone-spell .sink")).toHaveCount(1);
+        await expect(page.locator("#zone-hand .sink")).toHaveCount(0);
     });
 
     test("frames a filled slot as a card tile of its kind", async ({ page }) => {
@@ -215,6 +329,6 @@ test.describe("the Workbench frame", () => {
 
     test("keeps the hand panel in view on a tall desktop window", async ({ page }) => {
         await page.goto("/calculator");
-        await expect(page.locator("#hand-section")).toHaveCSS("position", "sticky");
+        await expect(page.locator("#board-section")).toHaveCSS("position", "sticky");
     });
 });

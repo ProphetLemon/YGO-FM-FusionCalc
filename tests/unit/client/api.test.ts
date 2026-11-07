@@ -31,6 +31,8 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
     throw new Error("expected the promise to reject");
 }
 
+const BOARD = { handIds: [1, 2], monsterIds: [], spellIds: [] };
+
 afterEach(() => {
     vi.unstubAllGlobals();
 });
@@ -39,7 +41,7 @@ describe("ApiError", () => {
     it("carries the code the API sends in its error body", async () => {
         stubFetch(jsonResponse(400, { error: { code: "hand-too-large", message: "too many cards" } }));
 
-        const err = await rejectionOf(calculate([1, 2]));
+        const err = await rejectionOf(calculate(BOARD));
 
         expect(err).toBeInstanceOf(ApiError);
         expect(err).toMatchObject({ status: 400, code: "hand-too-large" });
@@ -55,7 +57,7 @@ describe("ApiError", () => {
     ])("has no code when the error body is %s", async (_label, body) => {
         stubFetch(new Response(body, { status: 502 }));
 
-        const err = await rejectionOf(chainSearch([1, 2]));
+        const err = await rejectionOf(chainSearch(BOARD));
 
         expect(err).toBeInstanceOf(ApiError);
         expect(err).toMatchObject({ status: 502, code: undefined });
@@ -137,8 +139,8 @@ describe("getCardByName", () => {
 
 describe("abort signal", () => {
     const calls: ReadonlyArray<readonly [string, (signal: AbortSignal) => Promise<unknown>, unknown]> = [
-        ["calculate", (signal) => calculate([1, 2], signal), { fusions: [], equips: [], rituals: [] }],
-        ["chainSearch", (signal) => chainSearch([1, 2], signal), { chains: [], truncated: false }],
+        ["calculate", (signal) => calculate(BOARD, signal), { fusions: [], equips: [], rituals: [] }],
+        ["chainSearch", (signal) => chainSearch(BOARD, signal), { chains: [], truncated: false }],
         ["getCardByName", (signal) => getCardByName("Mystical Elf", signal), { card: { id: 2 } }],
     ];
 
@@ -151,15 +153,26 @@ describe("abort signal", () => {
         expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
     });
 
-    it("calculate posts the hand as JSON", async () => {
+    it("calculate posts the board as JSON, the three zones always there", async () => {
         const fetchMock = stubFetch(jsonResponse(200, { fusions: [], equips: [], rituals: [] }));
 
-        await calculate([13, 15]);
+        await calculate({ handIds: [13, 15], monsterIds: [], spellIds: [] });
 
         const init = fetchMock.mock.calls[0]?.[1];
         expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/calculator");
         expect(init?.method).toBe("POST");
-        expect(init?.body).toBe(JSON.stringify({ handIds: [13, 15] }));
+        expect(init?.body).toBe(JSON.stringify({ handIds: [13, 15], monsterIds: [], spellIds: [] }));
+    });
+
+    it("chainSearch posts the same board to the chain endpoint", async () => {
+        const fetchMock = stubFetch(jsonResponse(200, { chains: [], truncated: false }));
+
+        await chainSearch({ handIds: [13], monsterIds: [2], spellIds: [7] });
+
+        const init = fetchMock.mock.calls[0]?.[1];
+        expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/chain-search");
+        expect(init?.method).toBe("POST");
+        expect(init?.body).toBe(JSON.stringify({ handIds: [13], monsterIds: [2], spellIds: [7] }));
     });
 });
 

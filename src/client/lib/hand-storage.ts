@@ -1,10 +1,11 @@
 import { MAX_HAND_SIZE } from "../../shared/limits.js";
-import { MIN_HAND_SIZE } from "./slots.js";
-import { browserStorage, readJson, writeJson, type StorageLike } from "./storage.js";
+import { browserStorage, readJson, type StorageLike } from "./storage.js";
 
-// A change to the stored shape needs a new version in the key and in `v`: old values are then ignored.
+// The hand of before the board: 5 to 12 slots under the v1 key. The page no longer writes it and never
+// deletes it, so a hand saved by an older version can be read once and moved onto the board (D7).
 const HAND_KEY = "ygo-fm-fusioncalc:hand:v1";
 const HAND_VERSION = 1;
+const MIN_HAND_SLOTS = 5;
 
 // One entry per slot, in slot order: the id of the card in it, or null while it is empty.
 export type SlotIds = ReadonlyArray<number | null>;
@@ -25,19 +26,11 @@ function isStoredHand(value: unknown): value is StoredHand {
     return v === HAND_VERSION && Array.isArray(slots) && slots.every(isSlotId);
 }
 
-// The saved hand, with as many slots as the page allows; null when nothing usable is saved. Never throws.
+// The old hand, with the slots it had when saved (5 to 12); null when nothing usable is saved. Never throws.
 export function loadHand(storage: StorageLike | null = browserStorage("localStorage")): SlotIds | null {
     const stored = readJson<unknown>(storage, HAND_KEY);
     if (!isStoredHand(stored)) return null;
     const slots = stored.slots.slice(0, MAX_HAND_SIZE);
-    while (slots.length < MIN_HAND_SIZE) slots.push(null);
+    while (slots.length < MIN_HAND_SLOTS) slots.push(null);
     return slots;
-}
-
-// Best effort: a hand that cannot be saved is not worth breaking the page for. Never throws.
-export function saveHand(
-    slots: SlotIds,
-    storage: StorageLike | null = browserStorage("localStorage")
-): void {
-    writeJson(storage, HAND_KEY, { v: HAND_VERSION, slots });
 }

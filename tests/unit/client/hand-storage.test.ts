@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadHand, saveHand } from "../../../src/client/lib/hand-storage.js";
-import { MIN_HAND_SIZE } from "../../../src/client/lib/slots.js";
+import { loadHand } from "../../../src/client/lib/hand-storage.js";
 import type { StorageLike } from "../../../src/client/lib/storage.js";
 import { MAX_HAND_SIZE } from "../../../src/shared/limits.js";
 
-// The key and the shape are what users' browsers hold: changing either drops every saved hand.
+// The key and the shape are what users' browsers hold: the board reads them once to move a saved hand over.
 const KEY = "ygo-fm-fusioncalc:hand:v1";
 
 class MemoryStorage implements StorageLike {
@@ -32,56 +31,42 @@ function blockedStorage(): StorageLike & { removeItem(key: string): void } {
     return { getItem: blocked, setItem: blocked, removeItem: blocked };
 }
 
+const MIN_HAND_SIZE = 5;
+
 const noCards = (count: number): null[] => Array.from({ length: count }, () => null);
 
 afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe("saveHand and loadHand", () => {
-    it("bring back the hand that was saved, empty slots included", () => {
-        const storage = new MemoryStorage();
+describe("loadHand", () => {
+    it("brings back the hand that was saved, empty slots included", () => {
         const hand = [2, null, 8, null, null, 13];
 
-        saveHand(hand, storage);
-
-        expect(loadHand(storage)).toEqual(hand);
+        expect(loadHand(storageHolding(JSON.stringify({ v: 1, slots: hand })))).toEqual(hand);
     });
 
-    it("keep the same card in more than one slot", () => {
-        const storage = new MemoryStorage();
-
-        saveHand([1, 1, 1, null, null], storage);
-
-        expect(loadHand(storage)).toEqual([1, 1, 1, null, null]);
+    it("keeps the same card in more than one slot", () => {
+        expect(loadHand(storageHolding('{"v":1,"slots":[1,1,1,null,null]}'))).toEqual([1, 1, 1, null, null]);
     });
 
-    it("save under the versioned key as the ids of the slots in order", () => {
-        const storage = new MemoryStorage();
-
-        saveHand([2, null, 8, null, null], storage);
-
-        expect([...storage.items.keys()]).toEqual([KEY]);
-        expect(JSON.parse(storage.items.get(KEY) ?? "")).toEqual({ v: 1, slots: [2, null, 8, null, null] });
-    });
-
-    it("replace the hand saved before", () => {
-        const storage = new MemoryStorage();
-        saveHand([2, 8, null, null, null], storage);
-
-        saveHand(noCards(6), storage);
-
-        expect(loadHand(storage)).toEqual(noCards(6));
-    });
-
-    it("load nothing when no hand was saved", () => {
+    it("loads nothing when no hand was saved", () => {
         expect(loadHand(new MemoryStorage())).toBeNull();
     });
 
-    it("load a hand whose value has properties they do not know", () => {
+    it("loads a hand whose value has properties it does not know", () => {
         const storage = storageHolding('{"v":1,"slots":[2,null,null,null,null],"saved":"today"}');
 
         expect(loadHand(storage)).toEqual([2, null, null, null, null]);
+    });
+
+    it("reads only: it never writes or deletes the key", () => {
+        const storage = storageHolding('{"v":1,"slots":[2,null,null,null,null]}');
+
+        loadHand(storage);
+
+        expect([...storage.items.keys()]).toEqual([KEY]);
+        expect(storage.items.get(KEY)).toBe('{"v":1,"slots":[2,null,null,null,null]}');
     });
 });
 
@@ -181,11 +166,7 @@ describe("storage that cannot be used", () => {
         expect(loadHand(blockedStorage())).toBeNull();
     });
 
-    it("does not throw when storage refuses the write", () => {
-        expect(() => saveHand([2, null, null, null, null], blockedStorage())).not.toThrow();
-    });
-
-    it("does not throw when the storage is full", () => {
+    it("loads nothing from storage that cannot be read", () => {
         const full: StorageLike = {
             getItem: () => null,
             setItem: () => {
@@ -193,30 +174,24 @@ describe("storage that cannot be used", () => {
             },
         };
 
-        expect(() => saveHand([2, null, null, null, null], full)).not.toThrow();
         expect(loadHand(full)).toBeNull();
     });
 
     it("loads nothing and does not throw when there is no storage", () => {
         expect(loadHand(null)).toBeNull();
-        expect(() => saveHand([2, null, null, null, null], null)).not.toThrow();
     });
 
     it("does not throw when the environment has no window at all", () => {
         expect(loadHand()).toBeNull();
-        expect(() => saveHand([2, null, null, null, null])).not.toThrow();
     });
 });
 
 describe("the browser's localStorage", () => {
     it("is what a call without storage uses", () => {
-        const local = new MemoryStorage();
+        const local = storageHolding('{"v":1,"slots":[2,8,null,null,null]}');
         vi.stubGlobal("window", { localStorage: local });
 
-        saveHand([2, 8, null, null, null]);
-
         expect(loadHand()).toEqual([2, 8, null, null, null]);
-        expect([...local.items.keys()]).toEqual([KEY]);
     });
 
     it("is treated as no storage when merely reading it throws", () => {
@@ -227,15 +202,12 @@ describe("the browser's localStorage", () => {
         });
 
         expect(loadHand()).toBeNull();
-        expect(() => saveHand([2, null, null, null, null])).not.toThrow();
     });
 
     it("is not confused with sessionStorage", () => {
-        const session = new MemoryStorage();
+        const session = storageHolding('{"v":1,"slots":[2,8,null,null,null]}');
         vi.stubGlobal("window", { localStorage: new MemoryStorage(), sessionStorage: session });
 
-        saveHand([2, 8, null, null, null]);
-
-        expect(session.items.size).toBe(0);
+        expect(loadHand()).toBeNull();
     });
 });

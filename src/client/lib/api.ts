@@ -9,6 +9,7 @@ import type {
     FusionExpanded,
     ResultExpanded,
 } from "../../shared/types.js";
+import type { BoardRequest } from "./board.js";
 import { browserStorage, readJson, writeJson } from "./storage.js";
 
 // Versioned by the shape of an entry: a tab that stored an older shape fetches the index again.
@@ -99,20 +100,22 @@ export async function getResults(id: number): Promise<ResultExpanded[] | null> {
     }
 }
 
-export async function calculate(handIds: number[], signal?: AbortSignal): Promise<CalculatorResponse> {
+// Both calls send the board, so the server applies the rules of each zone and answers with the slots
+// (`from`, `fieldIndex`) the results were made from. The three arrays are always sent, empty or not.
+export async function calculate(board: BoardRequest, signal?: AbortSignal): Promise<CalculatorResponse> {
     return fetchJson<CalculatorResponse>("/api/calculator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handIds }),
+        body: JSON.stringify(board),
         signal,
     });
 }
 
-export async function chainSearch(handIds: number[], signal?: AbortSignal): Promise<ChainSearchResponse> {
+export async function chainSearch(board: BoardRequest, signal?: AbortSignal): Promise<ChainSearchResponse> {
     return fetchJson<ChainSearchResponse>("/api/chain-search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handIds }),
+        body: JSON.stringify(board),
         signal,
     });
 }

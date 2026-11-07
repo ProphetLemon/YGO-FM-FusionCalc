@@ -7,7 +7,7 @@ import {
     type Response as PageResponse,
     type Route,
 } from "@playwright/test";
-import { MAX_HAND_SIZE } from "../../src/shared/limits.js";
+import { BOARD_SIZE, ZONE_SIZE, fillBoard } from "./helpers/board.js";
 import type {
     CalculatorResponse,
     CardSummary,
@@ -15,7 +15,6 @@ import type {
     ChainSearchResponse,
 } from "../../src/shared/types.js";
 
-const START_SLOTS = 5;
 const MYSTICAL_ELF = "Mystical Elf";
 const MUSHROOM_MAN = "Mushroom Man";
 // One fusion (Queen of Autumn Leaves) and no equip.
@@ -27,21 +26,13 @@ const EQUIP_CARD = "Legendary Sword";
 const MONSTER = "Flame Swordsman";
 // Tyhone + Flame Swordsman make Crimson Sunbird (2300); Machine Conversion Factory, an Equip, fits Tyhone.
 const CHAIN_HAND = ["Tyhone", MONSTER, "Machine Conversion Factory"];
-// Twelve different cards, the most a hand takes. Mystical Elf and Mushroom Man fuse.
-const FULL_HAND = [
-    "Blue-eyes White Dragon",
-    MYSTICAL_ELF,
-    "Hitotsu-me Giant",
-    "Baby Dragon",
-    "Ryu-kishin",
-    "Feral Imp",
-    "Winged Dragon #1",
-    MUSHROOM_MAN,
-    "Shadow Specter",
-    "Blackland Fire Dragon",
-    "Sword Arm of Dragon",
-    "Swamp Battleguard",
-];
+// Fifteen different cards, five in each zone. Mystical Elf and Mushroom Man fuse, and Shadow Specter sits in
+// the hand beside them.
+const FULL_BOARD = {
+    hand: [MYSTICAL_ELF, MUSHROOM_MAN, "Winged Dragon #1", "Shadow Specter", "Blackland Fire Dragon"],
+    monster: ["Blue-eyes White Dragon", "Hitotsu-me Giant", "Baby Dragon", "Ryu-kishin", "Feral Imp"],
+    spell: ["Dark Hole", "Forest", "Sparks", "Mountain", "Wasteland"],
+};
 // Artwork file names of the cards whose images the specs check.
 const PASSWORD = {
     legendarySword: "61854111",
@@ -51,18 +42,17 @@ const PASSWORD = {
 };
 
 const TEXT = {
-    hint: "Añade al menos 2 cartas para ver fusiones y equipos. Los rituales necesitan la carta de ritual y sus tres materiales.",
+    hint: "Añade al menos 2 cartas para ver fusiones y equipos. Los rituales necesitan la carta de ritual y sus tres materiales en la zona de monstruos.",
     loading: "Calculando resultados…",
-    noFusions: "No hay fusiones posibles con esta mano.",
-    noEquips: "No hay equipos posibles con esta mano.",
+    noFusions: "No hay fusiones posibles con este tablero.",
+    noEquips: "No hay equipos posibles con este tablero.",
     noRituals:
-        "Ninguno para esta mano. Un ritual aparece aquí cuando tienes la carta de ritual y sus tres materiales.",
+        "Ninguno para este tablero. Un ritual aparece aquí cuando tienes la carta de ritual en la mano o en la zona de magias y trampas, y sus tres materiales en la zona de monstruos.",
     resultsTitle: "Resultados",
     resultsFailed: "No se pudieron calcular los resultados. Inténtalo de nuevo.",
     truncated:
-        "Búsqueda parcial: la mano tiene demasiadas combinaciones y solo se exploró una parte, así que puede haber una cadena mejor.",
-    noChain: "No se encontró ninguna cadena posible con esta mano.",
-    capReached: `Has alcanzado el máximo de ${MAX_HAND_SIZE} cartas en la mano.`,
+        "Búsqueda parcial: el tablero tiene demasiadas combinaciones y solo se exploró una parte, así que puede haber una cadena mejor.",
+    noChain: "No se encontró ninguna cadena posible con este tablero.",
 };
 
 const onPath =
@@ -79,7 +69,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 function slotAt(page: Page, index: number): Locator {
-    return page.locator(".hand-slot").nth(index);
+    return page.locator("#zone-hand .board-slot").nth(index);
 }
 
 function statusRegion(page: Page): Locator {
@@ -107,10 +97,6 @@ async function openCalculator(page: Page): Promise<void> {
     await input.fill("Mystical");
     await expect(page.getByRole("option", { name: MYSTICAL_ELF, exact: true })).toBeVisible();
     await input.fill("");
-}
-
-async function addSlotsUpTo(page: Page, count: number): Promise<void> {
-    while ((await page.locator(".hand-slot").count()) < count) await page.locator("#addSlotBtn").click();
 }
 
 // With nothing to show the results panels are hidden as a whole: no size, no space.
@@ -143,15 +129,21 @@ function fulfillJson(status: number, body: unknown): (route: Route) => Promise<v
     return (route) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
 
-function sentHandIds(request: PageRequest): number[] {
-    return (request.postDataJSON() as { handIds: number[] }).handIds;
+// Every card a board request carries, in all three zones.
+function sentCards(request: PageRequest): number[] {
+    const { handIds, monsterIds, spellIds } = request.postDataJSON() as {
+        handIds: number[];
+        monsterIds: number[];
+        spellIds: number[];
+    };
+    return [...handIds, ...monsterIds, ...spellIds];
 }
 
-// Resolves when the page gets the calculator answer for a hand of that size.
+// Resolves when the page gets the calculator answer for a board with that many cards.
 function waitForCalculation(page: Page, handSize: number): Promise<PageResponse> {
     return page.waitForResponse(
         (response) =>
-            isCalculator(new URL(response.url())) && sentHandIds(response.request()).length === handSize
+            isCalculator(new URL(response.url())) && sentCards(response.request()).length === handSize
     );
 }
 
@@ -920,80 +912,18 @@ test.describe("the best play", () => {
     });
 });
 
-test.describe("the add card button", () => {
-    test("is disabled at the cap, with a hint that says why", async ({ page }) => {
-        await page.goto("/calculator");
-        const add = page.locator("#addSlotBtn");
-        const hint = page.locator("#add-slot-hint");
-        await expect(add).toBeEnabled();
-        await expect(hint).toBeEmpty();
-
-        for (let count = START_SLOTS; count < MAX_HAND_SIZE; count++) {
-            await expect(add).toBeEnabled();
-            await add.click();
-        }
-
-        await expect(page.locator(".hand-slot")).toHaveCount(MAX_HAND_SIZE);
-        await expect(add).toBeDisabled();
-        await expect(hint).toHaveText(TEXT.capReached);
-        await expect(hint).toHaveAttribute("role", "status");
-        await expect(add).toHaveAccessibleDescription(TEXT.capReached);
-    });
-
-    test("is enabled again once a slot is removed, and disabled again when it is refilled", async ({
-        page,
-    }) => {
-        await page.goto("/calculator");
-        await addSlotsUpTo(page, MAX_HAND_SIZE);
-        const add = page.locator("#addSlotBtn");
-        await expect(add).toBeDisabled();
-
-        await page.locator(".remove-btn").first().click();
-
-        await expect(page.locator(".hand-slot")).toHaveCount(MAX_HAND_SIZE - 1);
-        await expect(add).toBeEnabled();
-        await expect(page.locator("#add-slot-hint")).toBeEmpty();
-        await expect(add).toHaveAccessibleDescription("");
-        await add.click();
-        await expect(page.locator(".hand-slot")).toHaveCount(MAX_HAND_SIZE);
-        await expect(add).toBeDisabled();
-        await expect(page.locator("#add-slot-hint")).toHaveText(TEXT.capReached);
-    });
-
-    test("cannot grow the hand past the cap even when the button is forced on", async ({ page }) => {
-        await page.goto("/calculator");
-        await addSlotsUpTo(page, MAX_HAND_SIZE);
-        const add = page.locator("#addSlotBtn");
-        await expect(add).toBeDisabled();
-
-        await add.evaluate((button: HTMLButtonElement) => {
-            button.disabled = false;
-            button.click();
-            button.click();
-        });
-
-        await expect(page.locator(".hand-slot")).toHaveCount(MAX_HAND_SIZE);
-    });
-
-    test("stays enabled through a reset below the cap", async ({ page }) => {
-        await page.goto("/calculator");
-        await addSlotsUpTo(page, MAX_HAND_SIZE - 1);
-
-        await page.locator("#resetBtn").click();
-
-        await expect(page.locator(".hand-slot")).toHaveCount(MAX_HAND_SIZE - 1);
-        await expect(page.locator("#addSlotBtn")).toBeEnabled();
-    });
-
-    test("leaves room for a hand the server accepts", async ({ page }) => {
-        expect(FULL_HAND).toHaveLength(MAX_HAND_SIZE);
+test.describe("a full board", () => {
+    test("is accepted by the server: fifteen cards, five in each zone", async ({ page }) => {
+        expect(FULL_BOARD.hand).toHaveLength(ZONE_SIZE);
+        expect(FULL_BOARD.monster).toHaveLength(ZONE_SIZE);
+        expect(FULL_BOARD.spell).toHaveLength(ZONE_SIZE);
         await openCalculator(page);
-        await addSlotsUpTo(page, MAX_HAND_SIZE);
-        const calculated = waitForCalculation(page, MAX_HAND_SIZE);
+        const calculated = waitForCalculation(page, BOARD_SIZE);
 
-        await fillHand(page, FULL_HAND);
+        await fillBoard(page, FULL_BOARD);
 
         expect((await calculated).status()).toBe(200);
+        await expect(page.locator("#board-count")).toHaveText("15 de 15 cartas");
         await expect(page.locator("#fusions-title")).toBeVisible();
         await expect(page.locator("#results-error")).toBeEmpty();
         await expect(statusRegion(page)).toBeEmpty();
@@ -1006,7 +936,7 @@ test.describe("in English", () => {
     test("translates the hint, the loading text and the empty columns", async ({ page }) => {
         await openCalculator(page);
         await expect(statusRegion(page)).toHaveText(
-            "Add at least 2 cards to see fusions and equips. Rituals need the ritual card and its three materials."
+            "Add at least 2 cards to see fusions and equips. Rituals need the ritual card and its three materials in the monster zone."
         );
         const held = await holdRequests(page, isCalculator);
 
@@ -1015,10 +945,10 @@ test.describe("in English", () => {
         for (const route of held) await release(route);
 
         await expect(page.locator("#outputarealeft > p")).toHaveText(
-            "No fusions are possible with this hand."
+            "No fusions are possible with this board."
         );
         await expect(page.locator("#outputarearight > p")).toHaveText(
-            "No equips are possible with this hand."
+            "No equips are possible with this board."
         );
         await expect(statusRegion(page)).toBeEmpty();
     });
@@ -1041,17 +971,7 @@ test.describe("in English", () => {
         await expect(chain.locator(".chain-step > p")).toHaveText("Step 1");
         await expect(chain.locator(".chain-final p").last()).toHaveText("Final ATK: 2300");
         await expect(page.locator("#chain-output").getByRole("note")).toHaveText(
-            "Partial search: this hand has too many combinations and only part of them was explored, so a better chain may exist."
-        );
-    });
-
-    test("translates the hint at the cap", async ({ page }) => {
-        await page.goto("/calculator");
-
-        await addSlotsUpTo(page, MAX_HAND_SIZE);
-
-        await expect(page.locator("#add-slot-hint")).toHaveText(
-            `You have reached the limit of ${MAX_HAND_SIZE} cards in your hand.`
+            "Partial search: this board has too many combinations and only part of them was explored, so a better chain may exist."
         );
     });
 });

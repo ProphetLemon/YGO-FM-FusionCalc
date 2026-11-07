@@ -181,3 +181,14 @@
             0 0 1px 0 #00a8e7;
     }
 }
+
+/* The art well of a board slot is about 75px tall, so a card with no artwork names itself in smaller type, in
+   at most four lines, and the name never spills out of the well. Unlayered, so it wins over the utilities. */
+.slot-tile .card-placeholder {
+    padding: 0.25rem;
+    font-size: 0.625rem;
+}
+.slot-tile .card-placeholder span {
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+}

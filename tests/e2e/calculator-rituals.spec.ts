@@ -1,10 +1,20 @@
 import { expect, test, type Locator, type Page, type Response } from "@playwright/test";
+import { fillBoard, fillSlot, zoneSlot, type BoardNames } from "./helpers/board.js";
 
-const YAMADRON_HAND = ["Yamadron Ritual", "Mountain Warrior", "Koumori Dragon", "Wings of Wicked Flame"];
+// A ritual needs its card in the hand or in the spell/trap zone and its three materials in the monster zone.
+const YAMADRON_BOARD: Required<BoardNames> = {
+    hand: ["Yamadron Ritual"],
+    monster: ["Mountain Warrior", "Koumori Dragon", "Wings of Wicked Flame"],
+    spell: [],
+};
 
-const INCOMPLETE_HANDS: ReadonlyArray<readonly [string, readonly string[]]> = [
-    ["the ritual card", ["Mountain Warrior", "Koumori Dragon", "Wings of Wicked Flame"]],
-    ["a material", ["Yamadron Ritual", "Mountain Warrior", "Koumori Dragon"]],
+const INCOMPLETE_BOARDS: ReadonlyArray<readonly [string, BoardNames]> = [
+    ["the ritual card", { monster: YAMADRON_BOARD.monster }],
+    ["a material", { hand: YAMADRON_BOARD.hand, monster: YAMADRON_BOARD.monster.slice(0, 2) }],
+    [
+        "its materials in the monster zone, because they are in the hand",
+        { hand: ["Yamadron Ritual", ...YAMADRON_BOARD.monster] },
+    ],
 ];
 
 // Artwork file names of the five cards of the entry, in display order: ritual card, materials, result. The CDN
@@ -16,28 +26,27 @@ test.beforeEach(async ({ page }) => {
     await page.route("https://images.ygoprodeck.com/**", (route) => route.abort());
 });
 
-async function fillHand(page: Page, names: readonly string[]): Promise<void> {
-    for (const [index, name] of names.entries()) {
-        const slot = page.locator(".hand-slot").nth(index);
-        await slot.locator("input").fill(name);
-        await slot.locator("input").dispatchEvent("change");
-        await expect(slot.locator(".slot-name")).toHaveText(name);
-    }
+function cardsOf(board: BoardNames): number {
+    return (board.hand?.length ?? 0) + (board.monster?.length ?? 0) + (board.spell?.length ?? 0);
 }
 
-// Resolves when the page gets the calculator answer for a hand of that size.
-function waitForCalculation(page: Page, handSize: number): Promise<Response> {
+// Resolves when the page gets the calculator answer for a board with that many cards.
+function waitForCalculation(page: Page, cards: number): Promise<Response> {
     return page.waitForResponse((response) => {
         if (!response.url().endsWith("/api/calculator")) return false;
-        const { handIds } = response.request().postDataJSON() as { handIds: number[] };
-        return handIds.length === handSize;
+        const body = response.request().postDataJSON() as {
+            handIds: number[];
+            monsterIds: number[];
+            spellIds: number[];
+        };
+        return body.handIds.length + body.monsterIds.length + body.spellIds.length === cards;
     });
 }
 
 const EMPTY_ES =
-    "Ninguno para esta mano. Un ritual aparece aquí cuando tienes la carta de ritual y sus tres materiales.";
+    "Ninguno para este tablero. Un ritual aparece aquí cuando tienes la carta de ritual en la mano o en la zona de magias y trampas, y sus tres materiales en la zona de monstruos.";
 const EMPTY_EN =
-    "None for this hand. A ritual shows up here once you hold the ritual card and its three materials.";
+    "None for this board. A ritual shows up here once you hold the ritual card in your hand or in the spell and trap zone, and its three materials in the monster zone.";
 
 // The panel is part of the results: it shows whenever the hand has two cards, and says what a ritual needs
 // when there is none.
@@ -68,7 +77,7 @@ async function expectRitualRow(block: Locator, captions: readonly string[]): Pro
 // The empty copy in English: the same hand minus its ritual card.
 async function expectEmptyAfterReset(page: Page, copy: string): Promise<void> {
     await page.locator("#resetBtn").click();
-    await fillHand(page, INCOMPLETE_HANDS[0][1]);
+    await fillBoard(page, INCOMPLETE_BOARDS[0][1]);
     await expectEmptyPanel(page, copy);
 }
 
@@ -79,9 +88,11 @@ test.describe("rituals block", () => {
         await expect(page.locator("#rituals-output")).toBeEmpty();
     });
 
-    test("lists a ritual when the hand has its card and three materials", async ({ page }) => {
+    test("lists a ritual when the board has its card in the hand and three materials in the monster zone", async ({
+        page,
+    }) => {
         await page.goto("/calculator");
-        await fillHand(page, YAMADRON_HAND);
+        await fillBoard(page, YAMADRON_BOARD);
         const block = page.locator("#rituals-output");
         await expect(block).toBeVisible();
         await expect(page.getByRole("heading", { name: "Rituales", level: 2, exact: true })).toBeVisible();
@@ -90,7 +101,7 @@ test.describe("rituals block", () => {
 
     test("draws artwork for the ritual card, the materials and the result", async ({ page }) => {
         await page.goto("/calculator");
-        await fillHand(page, YAMADRON_HAND);
+        await fillBoard(page, YAMADRON_BOARD);
         const images = page.locator("#rituals-output .ritual-entry").first().locator("img");
         await expect(images).toHaveCount(YAMADRON_ARTWORK.length);
         for (const [index, file] of YAMADRON_ARTWORK.entries()) {
@@ -98,31 +109,49 @@ test.describe("rituals block", () => {
         }
     });
 
-    for (const [missing, names] of INCOMPLETE_HANDS) {
-        test(`shows the empty copy when the hand lacks ${missing}`, async ({ page }) => {
+    for (const [missing, board] of INCOMPLETE_BOARDS) {
+        test(`shows the empty copy when the board lacks ${missing}`, async ({ page }) => {
             await page.goto("/calculator");
-            const calculated = waitForCalculation(page, names.length);
-            await fillHand(page, names);
+            const calculated = waitForCalculation(page, cardsOf(board));
+            await fillBoard(page, board);
             await (await calculated).finished();
             await expectEmptyPanel(page, EMPTY_ES);
         });
     }
 
-    test("shows the empty copy again when a card leaves the hand", async ({ page }) => {
+    test("takes the ritual card from the spell/trap zone as well", async ({ page }) => {
         await page.goto("/calculator");
-        await fillHand(page, YAMADRON_HAND);
+        await fillBoard(page, { monster: YAMADRON_BOARD.monster });
+        await fillSlot(page, "spell", 0, "Yamadron Ritual");
+        await expectRitualRow(page.locator("#rituals-output"), ES_CAPTIONS);
+    });
+
+    test("does not take a material from the hand or from the spell/trap zone", async ({ page }) => {
+        await page.goto("/calculator");
+        const calculated = waitForCalculation(page, 4);
+        await fillBoard(page, {
+            hand: ["Yamadron Ritual", "Mountain Warrior"],
+            monster: ["Koumori Dragon", "Wings of Wicked Flame"],
+        });
+        await (await calculated).finished();
+        await expectEmptyPanel(page, EMPTY_ES);
+    });
+
+    test("shows the empty copy again when a material leaves the monster zone", async ({ page }) => {
+        await page.goto("/calculator");
+        await fillBoard(page, YAMADRON_BOARD);
         const block = page.locator("#rituals-output");
         await expect(block).toBeVisible();
-        const lastSlot = page.locator(".hand-slot").nth(YAMADRON_HAND.length - 1);
-        const calculated = waitForCalculation(page, YAMADRON_HAND.length - 1);
-        await lastSlot.locator(".clear-btn").click();
+        const lastMaterial = zoneSlot(page, "monster", YAMADRON_BOARD.monster.length - 1);
+        const calculated = waitForCalculation(page, cardsOf(YAMADRON_BOARD) - 1);
+        await lastMaterial.locator(".clear-btn").click();
         await (await calculated).finished();
         await expectEmptyPanel(page, EMPTY_ES);
     });
 
     test("goes with the other results on reset", async ({ page }) => {
         await page.goto("/calculator");
-        await fillHand(page, YAMADRON_HAND);
+        await fillBoard(page, YAMADRON_BOARD);
         const block = page.locator("#rituals-output");
         await expect(block).toBeVisible();
         await page.locator("#resetBtn").click();
@@ -135,7 +164,7 @@ test.describe("rituals block", () => {
 
         test("uses the English labels", async ({ page }) => {
             await page.goto("/calculator");
-            await fillHand(page, YAMADRON_HAND);
+            await fillBoard(page, YAMADRON_BOARD);
             const block = page.locator("#rituals-output");
             await expect(
                 page.getByRole("heading", { name: "Rituals", level: 2, exact: true })

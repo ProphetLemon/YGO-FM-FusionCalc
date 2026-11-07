@@ -48,11 +48,11 @@ function highlighted(page: Page): Locator {
 }
 
 function slotInput(page: Page, index: number): Locator {
-    return page.locator(".hand-slot").nth(index).locator("input");
+    return page.locator("#zone-hand .board-slot").nth(index).locator("input");
 }
 
 function slotName(page: Page, index: number): Locator {
-    return page.locator(".hand-slot").nth(index).locator(".slot-name");
+    return page.locator("#zone-hand .board-slot").nth(index).locator(".slot-name");
 }
 
 function searchInput(page: Page): Locator {
@@ -214,7 +214,9 @@ test.describe("on the calculator", () => {
         test("open under the slot that is being typed in", async ({ page }) => {
             await slotInput(page, 1).fill(MUSHROOM);
 
-            await expect(page.locator(".hand-slot").nth(1).getByRole("option")).toHaveText(MUSHROOMS);
+            await expect(page.locator("#zone-hand .board-slot").nth(1).getByRole("option")).toHaveText(
+                MUSHROOMS
+            );
             await expect(options(page)).toHaveCount(MUSHROOMS.length);
         });
 
@@ -356,7 +358,7 @@ test.describe("on the calculator", () => {
             await input.fill(MUSHROOM);
             await expect(options(page)).toHaveText(MUSHROOMS);
 
-            await page.getByRole("heading", { name: "Tu mano" }).click();
+            await page.getByRole("heading", { name: "Tu tablero" }).click();
 
             await expect(options(page)).toHaveCount(0);
             await expect(input).toHaveAttribute("aria-expanded", "false");
@@ -368,7 +370,7 @@ test.describe("on the calculator", () => {
             const input = slotInput(page, 0);
             await input.fill(MUSHROOM);
             await expect(options(page)).toHaveText(MUSHROOMS);
-            await page.getByRole("heading", { name: "Tu mano" }).click();
+            await page.getByRole("heading", { name: "Tu tablero" }).click();
             await expect(options(page)).toHaveCount(0);
 
             await input.focus();

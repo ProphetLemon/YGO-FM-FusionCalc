@@ -4,58 +4,65 @@
         <p class="m-0 max-w-[60ch] text-wb-subtle"><%= t('calculator.subtitle') %></p>
     </div>
 
-    <div class="grid grid-cols-1 gap-5 items-start min-[1101px]:grid-cols-[440px_minmax(0,1fr)]">
+    <div class="grid grid-cols-1 gap-5 items-start min-[1101px]:grid-cols-[540px_minmax(0,1fr)]">
+        <%
+            const GLYPHS = {
+                hand: '<rect x="2.5" y="4" width="8" height="11"></rect><rect x="7.5" y="2.5" width="8" height="11"></rect>',
+                monster: '<path d="M3 15 L13 5 M11 2.5 L15.5 7 M4.5 10 L8 13.5"></path>',
+                spell: '<path d="M9 1.5 L10.6 7.4 L16.5 9 L10.6 10.6 L9 16.5 L7.4 10.6 L1.5 9 L7.4 7.4 Z"></path>',
+            };
+            // Whole class strings, so Tailwind sees every bar colour.
+            const ZONES = [
+                { id: 'hand', bar: 'win-bar win-bar-grey', well: false },
+                { id: 'monster', bar: 'win-bar win-bar-blue', well: true },
+                { id: 'spell', bar: 'win-bar win-bar-pink', well: true },
+            ];
+        %>
         <section
-            id="hand-section"
-            aria-labelledby="hand-title"
-            class="win min-[1101px]:[@media(min-height:860px)]:sticky min-[1101px]:[@media(min-height:860px)]:top-4"
+            id="board-section"
+            aria-labelledby="board-title"
+            class="min-w-0 flex flex-col gap-3 min-[1101px]:[@media(min-height:880px)]:sticky min-[1101px]:[@media(min-height:880px)]:top-4"
         >
-            <div class="win-bar win-bar-grey">
-                <h2 id="hand-title" tabindex="-1" class="win-title"><%= t('calculator.hand.title') %></h2>
-                <span id="hand-count" aria-live="polite" class="font-display text-lg text-white"></span>
+            <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h2 id="board-title" tabindex="-1" class="m-0 font-display text-[22px] font-bold leading-tight"><%= t('calculator.board.title') %></h2>
+                <span id="board-count" aria-live="polite" class="font-display text-lg font-bold"></span>
             </div>
-            <div class="win-body">
-                <div
-                    id="hand-meter"
-                    aria-hidden="true"
-                    class="sink grid grid-cols-12 gap-1 p-1 mb-4"
-                >
-                    <% for (let i = 0; i < 12; i++) { %>
-                    <span
-                        class="pip h-3 border border-wb-vent bg-wb-disabled data-[on=true]:bg-wb-ink data-[on=true]:border-wb-ink"
-                        data-on="false"
-                    ></span>
-                    <% } %>
+            <div
+                id="index-error"
+                role="alert"
+                class="hidden p-3 bg-wb-well border-2 border-wb-red text-wb-red font-bold"
+            >
+                <span><%= t('calculator.index.error') %></span>
+                <button type="button" id="indexRetryBtn" class="wb-btn ml-3 text-wb-ink">
+                    <%= t('calculator.btn.retry') %>
+                </button>
+            </div>
+            <p id="board-note" role="note" hidden class="sink m-0 p-3 text-wb-ink font-body text-sm"></p>
+            <% for (const zone of ZONES) { %>
+            <div id="zone-<%= zone.id %>" data-zone="<%= zone.id %>" role="group" aria-labelledby="zone-<%= zone.id %>-title" class="win">
+                <div class="<%= zone.bar %> gap-x-2.5 gap-y-1 pr-1.5 pl-3 min-[480px]:pl-3.5">
+                    <h3 id="zone-<%= zone.id %>-title" class="win-title flex items-center gap-2 text-[17px] min-[480px]:text-[19px]">
+                        <svg class="w-[18px] h-[18px] flex-none fill-none stroke-current stroke-[1.6]" viewBox="0 0 18 18" aria-hidden="true"><%- GLYPHS[zone.id] %></svg>
+                        <%= t('calculator.zone.' + zone.id) %>
+                    </h3>
+                    <div class="flex items-center gap-2.5 ml-auto">
+                        <span class="zone-count font-display text-[17px] min-[480px]:text-lg font-bold text-white"></span>
+                        <button type="button" class="zone-clear wb-btn px-3.5!" aria-label="<%= t('calculator.zone.clear-' + zone.id) %>">
+                            <%= t('calculator.zone.clear') %>
+                        </button>
+                    </div>
                 </div>
-                <div
-                    id="index-error"
-                    role="alert"
-                    class="hidden mb-4 p-3 bg-wb-well border-2 border-wb-red text-wb-red font-bold"
-                >
-                    <span><%= t('calculator.index.error') %></span>
-                    <button type="button" id="indexRetryBtn" class="wb-btn ml-3 text-wb-ink">
-                        <%= t('calculator.btn.retry') %>
-                    </button>
+                <div class="p-2.5 min-[480px]:p-3.5">
+                    <% if (zone.well) { %><div class="sink p-1.5 min-[480px]:p-2"><% } %>
+                    <ul class="zone-slots grid grid-cols-3 min-[480px]:grid-cols-5 gap-2 min-[480px]:gap-2.5 max-w-[560px] m-0 p-0 list-none"></ul>
+                    <% if (zone.well) { %></div><% } %>
                 </div>
-                <div
-                    id="hand-slots"
-                    class="grid grid-cols-2 min-[480px]:grid-cols-3 min-[701px]:grid-cols-6 min-[1101px]:grid-cols-4 gap-x-2.5 gap-y-4 mb-4"
-                ></div>
-                <ul aria-label="<%= t('calculator.legend.label') %>" class="flex flex-wrap gap-x-3.5 gap-y-1.5 m-0 mb-4 p-0 list-none text-sm text-wb-mute">
-                    <li class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 border-2 border-wb-ink bg-card-monster"></span><%= t('calculator.legend.monster') %></li>
-                    <li class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 border-2 border-wb-ink bg-card-fusion"></span><%= t('calculator.legend.fusion') %></li>
-                    <li class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 border-2 border-wb-ink bg-card-equip"></span><%= t('calculator.legend.equip') %></li>
-                    <li class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 border-2 border-wb-ink bg-card-magic"></span><%= t('calculator.legend.magic') %></li>
-                </ul>
-                <div class="flex flex-wrap items-center gap-3">
-                    <button type="button" id="addSlotBtn" aria-describedby="add-slot-hint" class="wb-btn">
-                        <%= t('calculator.btn.add-slot') %>
-                    </button>
-                    <button type="button" id="resetBtn" class="wb-btn text-wb-red">
-                        <%= t('calculator.btn.reset') %>
-                    </button>
-                    <p id="add-slot-hint" role="status" class="m-0 text-sm text-wb-mute"></p>
-                </div>
+            </div>
+            <% } %>
+            <div class="flex flex-wrap items-center gap-3 px-0.5 py-1">
+                <button type="button" id="resetBtn" class="wb-btn text-wb-red">
+                    <%= t('calculator.btn.reset') %>
+                </button>
             </div>
         </section>
 
@@ -91,6 +98,7 @@
                         <h2 id="fusions-title" tabindex="-1" class="win-title"><%= t('search.results.fusions') %></h2>
                     </div>
                     <div class="win-body">
+                        <p id="apply-status" role="status" class="m-0 font-body text-sm font-bold text-wb-red not-empty:mb-2"></p>
                         <p id="fusions-apply-hint" hidden class="m-0 mb-2 font-body text-sm text-wb-mute"><%= t('calculator.results.apply-hint') %></p>
                         <div id="outputarealeft"></div>
                         <div id="outputareaother" class="hidden mt-5"></div>

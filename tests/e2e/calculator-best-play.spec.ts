@@ -1,41 +1,10 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { PROBLEM_BOARD, fillBoard, openCalculator } from "./helpers/board.js";
 
-// The hand the redesign was built around: the best single fusion is Sword Arm of Dragon (1750 ATK) but a
-// chain of two steps reaches Kaminari Attack (1900 ATK). No API is mocked here: this is the real answer.
-const PROBLEM_HAND = [
-    "Petit Dragon",
-    "Kanikabuto",
-    "Mystical Elf",
-    "Celtic Guardian",
-    "Legendary Sword",
-    "Zone Eater",
-    "Sparks",
-];
-
-function slotAt(page: Page, index: number): Locator {
-    return page.locator(".hand-slot").nth(index);
-}
-
-// The slots exist at once but the hand is read from the card index, which arrives a little later.
-async function openCalculator(page: Page): Promise<void> {
-    await page.goto("/calculator");
-    const input = slotAt(page, 0).locator("input");
-    await input.fill("Mystical");
-    await expect(page.getByRole("option", { name: "Mystical Elf", exact: true })).toBeVisible();
-    await input.fill("");
-}
-
-// Fills the hand without a single click on anything but "Add card": the answer must come by itself.
+// The hand the redesign was built around, on the board (see PROBLEM_BOARD). No API is mocked here: this is the
+// real answer.
 async function fillProblemHand(page: Page): Promise<void> {
-    while ((await page.locator(".hand-slot").count()) < PROBLEM_HAND.length) {
-        await page.locator("#addSlotBtn").click();
-    }
-    for (const [index, name] of PROBLEM_HAND.entries()) {
-        const input = slotAt(page, index).locator("input");
-        await input.fill(name);
-        await input.dispatchEvent("change");
-        await expect(slotAt(page, index).locator(".slot-name")).toHaveText(name);
-    }
+    await fillBoard(page, PROBLEM_BOARD);
 }
 
 test.beforeEach(async ({ page }) => {

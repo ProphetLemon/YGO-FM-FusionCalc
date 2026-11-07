@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { CardSummary } from "../../src/shared/types.js";
+import { fillZone } from "./helpers/board.js";
 
 // Real cards, looked up in data/*.json instead of guessed.
 const BLUE_EYES = "Blue-eyes White Dragon";
@@ -18,7 +19,8 @@ const QUEEN_OF_AUTUMN_LEAVES = "Queen of Autumn Leaves";
 const CONTRUCT_OF_MASK = "Contruct of Mask";
 const MASK_OF_SHINE_AND_DARK = "Mask of Shine & Dark";
 // The Ritual card and the three materials of the recipe that makes Mask of Shine & Dark.
-const MASK_HAND = [CONTRUCT_OF_MASK, "Mask of Darkness", "Masked Clown", "Masked Sorcerer"];
+const MASK_RITUAL = CONTRUCT_OF_MASK;
+const MASK_MATERIALS = ["Mask of Darkness", "Masked Clown", "Masked Sorcerer"];
 // Cards with no password (all zeros) that the override list does not name: they have no artwork at all.
 const NO_ARTWORK = [METEOR_B_DRAGON, PSYCHO_PUPPET, MASK_OF_SHINE_AND_DARK, "Dark Magic Ritual"];
 
@@ -76,7 +78,7 @@ async function mockCdn(page: Page, has: (file: string) => boolean): Promise<stri
 }
 
 function slotAt(page: Page, index: number): Locator {
-    return page.locator(".hand-slot").nth(index);
+    return page.locator("#zone-hand .board-slot").nth(index);
 }
 
 // The placeholders a person can see. A card with artwork keeps its own, hidden, in case the picture fails.
@@ -317,7 +319,9 @@ test.describe("the thumbnails beside a label", () => {
     }) => {
         const asked = await mockCdn(page, only(...MASK_MATERIAL_FILES));
         await page.goto("/calculator");
-        await fillHand(page, MASK_HAND);
+        // The ritual card waits in the hand and its three materials stand in the monster zone.
+        await fillSlot(page, 0, MASK_RITUAL);
+        await fillZone(page, "monster", MASK_MATERIALS);
 
         const entry = page.locator("#rituals-output .ritual-entry");
         await expect(entry).toHaveCount(1);

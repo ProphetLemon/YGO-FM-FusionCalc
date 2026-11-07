@@ -27,11 +27,17 @@ describe("view routes", () => {
         expect(res.text).not.toContain("/public/javascripts/fusionSearch.js");
     });
 
-    it("renders calculator page with dynamic slots container", async () => {
+    it("renders the calculator page with its three zones and no way to add slots", async () => {
         const res = await request(app).get("/calculator");
         expect(res.status).toBe(200);
-        expect(res.text).toContain('id="hand-slots"');
-        expect(res.text).toContain('id="addSlotBtn"');
+        for (const zone of ["hand", "monster", "spell"]) {
+            expect(res.text).toContain(`id="zone-${zone}"`);
+            expect(res.text).toContain(`id="zone-${zone}-title"`);
+        }
+        expect(res.text).toContain('id="board-count"');
+        expect(res.text).toContain('id="resetBtn"');
+        expect(res.text).not.toContain('id="addSlotBtn"');
+        expect(res.text).not.toContain('id="hand-meter"');
         expect(res.text).not.toContain("/public/javascripts/fusionCalc.js");
     });
 

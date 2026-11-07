@@ -1,17 +1,15 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { fillBoard, handSlot, openCalculator, zoneSlot } from "./helpers/board.js";
 import type { CalculatorResponse, CardSummary } from "../../src/shared/types.js";
 
-// The hand the redesign was built around (see calculator-best-play.spec.ts). No API is mocked for it: the
-// results are the real ones. Salamandra, an Equip, is the one fusion that does not make a monster.
-const PROBLEM_HAND = [
-    "Petit Dragon",
-    "Kanikabuto",
-    "Mystical Elf",
-    "Celtic Guardian",
-    "Legendary Sword",
-    "Zone Eater",
-    "Sparks",
-];
+// The board of the redesign's hand (see calculator-best-play.spec.ts), cut to what the results panels show: the
+// real answer, no mock. Salamandra, an Equip, is the one fusion that does not make a monster: Legendary Sword
+// and Sparks make it, so both stay in the hand. Zone Eater sits in the monster zone and still fuses with the
+// hand's Petit Dragon.
+const RESULTS_BOARD = {
+    hand: ["Petit Dragon", "Kanikabuto", "Celtic Guardian", "Legendary Sword", "Sparks"],
+    monster: ["Zone Eater"],
+};
 const MYSTICAL_ELF = "Mystical Elf";
 const MUSHROOM_MAN = "Mushroom Man";
 const TWO_CARDS = [MYSTICAL_ELF, MUSHROOM_MAN];
@@ -19,34 +17,13 @@ const TWO_CARDS = [MYSTICAL_ELF, MUSHROOM_MAN];
 const ES = {
     best: "Mejor fusión simple",
     noAtk: "Sin ATK",
-    monsterNone: "Ninguna fusión de esta mano da un monstruo.",
-    noFusions: "No hay fusiones posibles con esta mano.",
+    monsterNone: "Ninguna fusión de este tablero da un monstruo.",
+    noFusions: "No hay fusiones posibles con este tablero.",
     otherTitle: "Resultados que no son monstruos",
 };
 
-function slotAt(page: Page, index: number): Locator {
-    return page.locator(".hand-slot").nth(index);
-}
-
-// The slots exist at once but the hand is read from the card index, which arrives a little later.
-async function openCalculator(page: Page): Promise<void> {
-    await page.goto("/calculator");
-    const input = slotAt(page, 0).locator("input");
-    await input.fill("Mystical");
-    await expect(page.getByRole("option", { name: MYSTICAL_ELF, exact: true })).toBeVisible();
-    await input.fill("");
-}
-
 async function fillHand(page: Page, names: readonly string[]): Promise<void> {
-    while ((await page.locator(".hand-slot").count()) < names.length) {
-        await page.locator("#addSlotBtn").click();
-    }
-    for (const [index, name] of names.entries()) {
-        const input = slotAt(page, index).locator("input");
-        await input.fill(name);
-        await input.dispatchEvent("change");
-        await expect(slotAt(page, index).locator(".slot-name")).toHaveText(name);
-    }
+    await fillBoard(page, { hand: names });
 }
 
 function card(id: number, name: string, typeName: string, isMonster: boolean): CardSummary {
@@ -96,7 +73,7 @@ test.beforeEach(async ({ page }) => {
 test.describe("the results of the real hand, split by kind", () => {
     test("lists only monsters in the fusions table, the best first and tagged", async ({ page }) => {
         await openCalculator(page);
-        await fillHand(page, PROBLEM_HAND);
+        await fillBoard(page, RESULTS_BOARD);
 
         const table = page.getByRole("table", { name: "Fusiones", exact: true });
         await expect(table).toBeVisible();
@@ -122,7 +99,7 @@ test.describe("the results of the real hand, split by kind", () => {
 
     test("highlights the best row with the green fill and outline", async ({ page }) => {
         await openCalculator(page);
-        await fillHand(page, PROBLEM_HAND);
+        await fillBoard(page, RESULTS_BOARD);
 
         const rows = page.locator("#outputarealeft .fusion-row");
         await expect(rows).toHaveCount(3);
@@ -135,7 +112,7 @@ test.describe("the results of the real hand, split by kind", () => {
 
     test("puts the fusion that does not make a monster only in its own subsection", async ({ page }) => {
         await openCalculator(page);
-        await fillHand(page, PROBLEM_HAND);
+        await fillBoard(page, RESULTS_BOARD);
         await expect(page.locator("#outputarealeft .fusion-row")).toHaveCount(3);
 
         const other = page.locator("#outputareaother");
@@ -161,7 +138,7 @@ test.describe("the results of the real hand, split by kind", () => {
 
     test("keeps Legendary Sword equipping Celtic Guardian in the equips panel", async ({ page }) => {
         await openCalculator(page);
-        await fillHand(page, PROBLEM_HAND);
+        await fillBoard(page, RESULTS_BOARD);
         await expect(page.locator("#outputareaother")).toBeVisible();
 
         const equips = page.locator("#outputarearight > div");
@@ -172,7 +149,7 @@ test.describe("the results of the real hand, split by kind", () => {
 
     test("sets the ATK in the display font at 24px and the name in bold", async ({ page }) => {
         await openCalculator(page);
-        await fillHand(page, PROBLEM_HAND);
+        await fillBoard(page, RESULTS_BOARD);
 
         const row = page.locator("#outputarealeft .fusion-row").first();
         await expect(row).toBeVisible();
@@ -194,7 +171,7 @@ test.describe("the results of the real hand, split by kind", () => {
         await page.route("https://images.ygoprodeck.com/**", (route) => route.abort());
         try {
             await openCalculator(page);
-            await fillHand(page, PROBLEM_HAND);
+            await fillBoard(page, RESULTS_BOARD);
 
             await expect(page.locator("#outputareaother").getByRole("heading", { level: 3 })).toHaveText(
                 "Results that are not monsters"
@@ -216,7 +193,7 @@ test.describe("the layout of the results panels", () => {
     test("puts equips and rituals side by side below the fusions panel", async ({ page }) => {
         await page.setViewportSize({ width: 1280, height: 900 });
         await openCalculator(page);
-        await fillHand(page, PROBLEM_HAND);
+        await fillBoard(page, RESULTS_BOARD);
         await expect(page.locator("#outputareaother")).toBeVisible();
 
         const fusions = await boxOf(page.locator("section").filter({ has: page.locator("#fusions-title") }));
@@ -232,7 +209,7 @@ test.describe("the layout of the results panels", () => {
     test("stacks them at 1100px and below", async ({ page }) => {
         await page.setViewportSize({ width: 1000, height: 900 });
         await openCalculator(page);
-        await fillHand(page, PROBLEM_HAND);
+        await fillBoard(page, RESULTS_BOARD);
         await expect(page.locator("#outputareaother")).toBeVisible();
 
         const equips = await boxOf(page.locator("section").filter({ has: page.locator("#equips-title") }));
@@ -246,7 +223,7 @@ test.describe("the layout of the results panels", () => {
 
         test("hides the table header, stacks each row and does not scroll sideways", async ({ page }) => {
             await openCalculator(page);
-            await fillHand(page, PROBLEM_HAND);
+            await fillBoard(page, RESULTS_BOARD);
             await expect(page.locator("#outputareaother")).toBeVisible();
 
             await expect(page.locator("#outputarealeft [role=row]").first()).toBeHidden();
@@ -314,20 +291,21 @@ test.describe("the other block follows the hand", () => {
         await openCalculator(page);
         await expectBlockHidden(page.locator("#outputareaother"));
 
-        await fillHand(page, PROBLEM_HAND);
+        await fillBoard(page, RESULTS_BOARD);
         await expect(page.locator("#outputareaother .fusion-row")).toHaveCount(1);
 
         // Back to a single card: the hint returns and the block goes with the results.
-        for (let index = 1; index < PROBLEM_HAND.length; index++) {
-            await slotAt(page, index).locator(".clear-btn").click();
+        for (let index = 1; index < RESULTS_BOARD.hand.length; index++) {
+            await handSlot(page, index).locator(".clear-btn").click();
         }
+        await zoneSlot(page, "monster", 0).locator(".clear-btn").click();
         await expect(page.locator("#outputarealeft")).toBeEmpty();
         await expectBlockHidden(page.locator("#outputareaother"));
     });
 
     test("is empty and hidden after a reset", async ({ page }) => {
         await openCalculator(page);
-        await fillHand(page, PROBLEM_HAND);
+        await fillBoard(page, RESULTS_BOARD);
         await expect(page.locator("#outputareaother .fusion-row")).toHaveCount(1);
 
         await page.locator("#resetBtn").click();
