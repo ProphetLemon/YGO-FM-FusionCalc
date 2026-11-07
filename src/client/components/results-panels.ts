@@ -1,8 +1,10 @@
 import type { CardSummary, EquipExpanded, FusionExpanded, RitualExpanded } from "../../shared/types.js";
+import type { TerrainId } from "../../shared/terrains.js";
 import { t } from "../lib/i18n.js";
 import type { SentBoard } from "../lib/board.js";
 import { createCardTile, isEquipCard } from "./card-tile.js";
 import { slotTag } from "./slot-tag.js";
+import { appendStat } from "./terrain-mark.js";
 
 // The rows of the calculator results as the Workbench draws them (D9): the fusions table, the equips and
 // the rituals. The containers (`#outputarealeft`, `#outputareaother`, `#outputarearight`, `#rituals-output`)
@@ -73,6 +75,7 @@ function fusionRow(
     entry: FusionExpanded,
     best: boolean,
     sent: SentBoard | null,
+    terrain: TerrainId | null,
     onApply?: (entry: FusionExpanded) => void
 ): HTMLElement {
     const result = entry.result;
@@ -115,9 +118,11 @@ function fusionRow(
         ? cell("fusion-stat font-display text-2xl leading-none text-wb-green")
         : cell("fusion-stat text-sm text-wb-mute");
     if (result.isMonster) {
-        statCell.append(`${result.attack} `);
-        const defense = element("small", "font-body text-sm font-normal text-wb-mute");
-        defense.textContent = `/ ${result.defense}`;
+        appendStat(statCell, result.attack, result.type, terrain);
+        statCell.append(" ");
+        const defense = element("small", "inline-block font-body text-sm font-normal text-wb-mute");
+        defense.append("/ ");
+        appendStat(defense, result.defense, result.type, terrain);
         statCell.appendChild(defense);
     } else {
         statCell.textContent = t("calculator.results.no-atk");
@@ -139,7 +144,8 @@ function fusionRow(
 // A table of fusions: a header row, then one row per fusion. With `highlightFirst` the first row is the best
 // single fusion (the server sorts the monsters by the ATK of what they make). `label` names the table. With
 // `onApply` every row can be chosen, by pointer or by the button inside it. With `sent`, the board the answer
-// was made for, every input carries the tag of its slot.
+// was made for, every input carries the tag of its slot. With a `terrain`, the ATK and DEF of the results are the
+// ones they have there, each changed value with its mark (the order is the server's, made for the same terrain).
 export function renderFusionTable(
     fusions: readonly FusionExpanded[],
     options: {
@@ -147,6 +153,7 @@ export function renderFusionTable(
         label: string;
         onApply?: (fusion: FusionExpanded) => void;
         sent?: SentBoard | null;
+        terrain?: TerrainId | null;
     }
 ): HTMLElement {
     const table = element("div", "fusion-table", "table");
@@ -154,7 +161,13 @@ export function renderFusionTable(
     table.appendChild(headerRow(!options.highlightFirst));
     fusions.forEach((fusion, index) => {
         table.appendChild(
-            fusionRow(fusion, options.highlightFirst && index === 0, options.sent ?? null, options.onApply)
+            fusionRow(
+                fusion,
+                options.highlightFirst && index === 0,
+                options.sent ?? null,
+                options.terrain ?? null,
+                options.onApply
+            )
         );
     });
     return table;
@@ -181,10 +194,11 @@ function captioned(
     card: CardSummary,
     caption: string,
     kind?: "fusion",
-    tag?: HTMLElement | null
+    tag?: HTMLElement | null,
+    terrain: TerrainId | null = null
 ): HTMLElement {
     const column = element("div", "flex flex-col items-center gap-1.5");
-    column.appendChild(createCardTile(card, { size: "s", kind }));
+    column.appendChild(createCardTile(card, { size: "s", kind, terrain }));
     const label = element("span", CAPTION_CLASS);
     label.textContent = caption;
     column.appendChild(label);
@@ -194,7 +208,11 @@ function captioned(
 
 // The Equip card goes first whatever the hand order was. A pair that is not one Equip and one other card
 // cannot be told apart by role, so both cards get the neutral caption.
-export function renderEquipRow(entry: EquipExpanded, sent: SentBoard | null = null): HTMLElement {
+export function renderEquipRow(
+    entry: EquipExpanded,
+    sent: SentBoard | null = null,
+    terrain: TerrainId | null = null
+): HTMLElement {
     const row = element("div", "equip-entry flex flex-wrap items-center gap-3.5");
     const equipFirst = isEquipCard(entry.card1);
     const byRole = equipFirst !== isEquipCard(entry.card2);
@@ -209,29 +227,46 @@ export function renderEquipRow(entry: EquipExpanded, sent: SentBoard | null = nu
             from,
             t(byRole ? "card.label.equip" : "card.label.input"),
             undefined,
-            slotTag(sent, fromRef)
+            slotTag(sent, fromRef),
+            terrain
         ),
         arrow(),
-        captioned(to, t(byRole ? "card.label.monster" : "card.label.input"), undefined, slotTag(sent, toRef))
+        captioned(
+            to,
+            t(byRole ? "card.label.monster" : "card.label.input"),
+            undefined,
+            slotTag(sent, toRef),
+            terrain
+        )
     );
     return row;
 }
 
-export function renderRitualRow(entry: RitualExpanded, sent: SentBoard | null = null): HTMLElement {
+export function renderRitualRow(
+    entry: RitualExpanded,
+    sent: SentBoard | null = null,
+    terrain: TerrainId | null = null
+): HTMLElement {
     const row = element(
         "div",
         "ritual-entry flex flex-wrap items-start gap-3 py-3 border-t-2 border-wb-rule first:border-t-0 first:pt-0"
     );
     row.appendChild(
-        captioned(entry.ritualCard, t("card.label.ritual"), undefined, slotTag(sent, entry.from?.ritualCard))
+        captioned(
+            entry.ritualCard,
+            t("card.label.ritual"),
+            undefined,
+            slotTag(sent, entry.from?.ritualCard),
+            terrain
+        )
     );
     entry.materials.forEach((material, i) => {
         const tag = slotTag(sent, entry.from?.materials[i]);
-        row.appendChild(captioned(material, t("card.label.material"), undefined, tag));
+        row.appendChild(captioned(material, t("card.label.material"), undefined, tag, terrain));
     });
     const to = arrow();
     to.classList.add("self-center");
     row.appendChild(to);
-    row.appendChild(captioned(entry.result, t("card.label.result"), "fusion"));
+    row.appendChild(captioned(entry.result, t("card.label.result"), "fusion", null, terrain));
     return row;
 }

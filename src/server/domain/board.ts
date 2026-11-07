@@ -8,6 +8,7 @@ import {
 import type { Candidate } from "./chain-search.js";
 import { isMonster, toCardSummary } from "./cards.js";
 import { expand, sortRituals } from "./rituals.js";
+import { terrainAttack, type TerrainId } from "../../shared/terrains.js";
 import { getCardById, getEquipsForCard, getFusionResult, getRitualRecipes } from "../data/store.js";
 import type {
     BoardZone,
@@ -26,6 +27,8 @@ export interface BoardInput {
     handIds: readonly number[];
     monsterIds: readonly number[];
     spellIds: readonly number[];
+    // The field terrain the answer is ranked on; absent or null ranks by the printed ATK.
+    terrain?: TerrainId | null;
 }
 
 interface Slot {
@@ -51,7 +54,11 @@ function isEquipCard(card: Card): boolean {
 
 // R1, R2: a hand card fuses with another hand card or with a monster-zone card; field cards never fuse with
 // each other and the spell/trap zone takes no part.
-function findBoardFusions(hand: readonly Slot[], field: readonly Slot[]): FusionExpanded[] {
+function findBoardFusions(
+    hand: readonly Slot[],
+    field: readonly Slot[],
+    terrain: TerrainId | null | undefined
+): FusionExpanded[] {
     const fusions: FusionExpanded[] = [];
     const tryFuse = (first: Slot, second: Slot): void => {
         const resultId = getFusionResult(first.card.Id, second.card.Id);
@@ -70,8 +77,11 @@ function findBoardFusions(hand: readonly Slot[], field: readonly Slot[]): Fusion
     for (const first of hand) {
         for (const second of field) tryFuse(first, second);
     }
-    // Array.sort is stable, so ties keep the hand-before-field order above.
-    return fusions.sort((a, b) => b.result.attack - a.result.attack);
+    // Array.sort is stable, so ties keep the hand-before-field order above. On a terrain the order follows the
+    // ATK the result has there; the summaries keep the printed values.
+    const attackOf = (fusion: FusionExpanded): number =>
+        terrainAttack(fusion.result.attack, fusion.result.type, terrain);
+    return fusions.sort((a, b) => attackOf(b) - attackOf(a));
 }
 
 // R5: card1 is always the Equip card. One in the hand can target the hand or the monster zone, one in the
@@ -105,14 +115,25 @@ function findBoardEquips(
 
 // R4: the ritual card comes from the hand or the spell/trap zone, the 3 materials from the monster zone only.
 // Each requirement takes its own monster slot, so an id a recipe lists twice must be on the field twice.
-function findBoardRituals(ritualSlots: readonly Slot[], field: readonly Slot[]): RitualExpanded[] {
+function findBoardRituals(
+    ritualSlots: readonly Slot[],
+    field: readonly Slot[],
+    terrain: TerrainId | null | undefined
+): RitualExpanded[] {
     const rituals: RitualExpanded[] = [];
     for (const recipe of getRitualRecipes()) {
         const from = placeRecipe(recipe, ritualSlots, field);
         const ritual = from ? expand(recipe) : null;
         if (from && ritual) rituals.push({ ...ritual, from });
     }
-    return sortRituals(rituals);
+    return terrain ? sortRitualsOnTerrain(rituals, terrain) : sortRituals(rituals);
+}
+
+// The order of `sortRituals` with the ATK the result has on the terrain.
+export function sortRitualsOnTerrain(rituals: RitualExpanded[], terrain: TerrainId): RitualExpanded[] {
+    const attackOf = (ritual: RitualExpanded): number =>
+        terrainAttack(ritual.result.attack, ritual.result.type, terrain);
+    return rituals.sort((a, b) => attackOf(b) - attackOf(a) || a.result.id - b.result.id);
 }
 
 function placeRecipe(
@@ -139,9 +160,9 @@ export function findBoardCombinations(board: BoardInput): CalculatorResponse {
     const field = slotsOf("monster", board.monsterIds);
     const spells = slotsOf("spell", board.spellIds);
     return {
-        fusions: findBoardFusions(hand, field),
+        fusions: findBoardFusions(hand, field, board.terrain),
         equips: findBoardEquips(hand, field, spells),
-        rituals: findBoardRituals([...hand, ...spells], field),
+        rituals: findBoardRituals([...hand, ...spells], field, board.terrain),
     };
 }
 
@@ -182,7 +203,24 @@ function toBoardChain({ candidate, fieldIndex }: BoardCandidate): ChainResult {
     return fieldIndex === undefined ? chain : { ...chain, fieldIndex };
 }
 
-// R3, D4: hand-only chains, plus chains whose first material is one monster of the monster zone.
+// The ATK the final card of a candidate has on the terrain; the printed one without a terrain.
+function candidateAttack(entry: BoardCandidate, terrain: TerrainId | null | undefined): number {
+    const result = getCardById(entry.candidate.last.result);
+    return result ? terrainAttack(entry.candidate.attack, result.Type, terrain) : entry.candidate.attack;
+}
+
+// The order of `compareCandidates` with the ATK on the terrain, so the top is chosen after the adjustment.
+function compareOnTerrain(
+    terrain: TerrainId | null | undefined
+): (a: BoardCandidate, b: BoardCandidate) => number {
+    return (a: BoardCandidate, b: BoardCandidate): number =>
+        candidateAttack(b, terrain) - candidateAttack(a, terrain) ||
+        a.candidate.steps - b.candidate.steps ||
+        a.candidate.last.result - b.candidate.last.result;
+}
+
+// R3, D4: hand-only chains, plus chains whose first material is one monster of the monster zone. With a
+// terrain the top chains are those with the highest ATK there, which can differ from the printed ranking.
 export function findBoardChains(
     board: BoardInput,
     maxStates: number = MAX_CHAIN_STATES
@@ -203,7 +241,11 @@ export function findBoardChains(
     }
 
     const chains = mergeCandidates(searches)
-        .sort((a, b) => compareCandidates(a.candidate, b.candidate))
+        .sort(
+            board.terrain
+                ? compareOnTerrain(board.terrain)
+                : (a, b) => compareCandidates(a.candidate, b.candidate)
+        )
         .slice(0, TOP_N)
         .map(toBoardChain);
     return { chains, truncated };

@@ -1,10 +1,13 @@
 import { ZONE_SIZE } from "../../shared/limits.js";
+import { isTerrainId, type TerrainId } from "../../shared/terrains.js";
 import type { BoardZone } from "../../shared/types.js";
 import type { ZoneRecord } from "./board.js";
 import type { SlotIds } from "./hand-storage.js";
 import { browserStorage, readJson, writeJson, type StorageLike } from "./storage.js";
 
-// A change to the stored shape needs a new version in the key and in `v`: old values are then ignored.
+// A change that old code cannot read needs a new version in the key and in `v`: old values are then ignored.
+// The optional `terrain` key was added without one: a value without it means no terrain, and code that does not
+// know the key ignores it.
 // The v1 key belongs to hand-storage.ts, which only reads it; this page never deletes it.
 const BOARD_KEY = "ygo-fm-fusioncalc:board:v2";
 const BOARD_VERSION = 2;
@@ -16,6 +19,8 @@ interface StoredBoard {
     hand: Array<number | null>;
     monsters: Array<number | null>;
     spells: Array<number | null>;
+    // Only written when a terrain is chosen.
+    terrain?: TerrainId;
 }
 
 function isSlotId(entry: unknown): entry is number | null {
@@ -47,9 +52,18 @@ export function loadBoard(storage: StorageLike | null = browserStorage("localSto
     return { hand: fitZone(stored.hand), monster: fitZone(stored.monsters), spell: fitZone(stored.spells) };
 }
 
-// Best effort: a board that cannot be saved is not worth breaking the page for. Never throws.
+// The terrain saved with the board: none when nothing usable is saved, when the value has no `terrain` and when
+// the one it has is not one of the six. Never throws.
+export function loadTerrain(storage: StorageLike | null = browserStorage("localStorage")): TerrainId | null {
+    const stored = readJson<unknown>(storage, BOARD_KEY);
+    if (!isStoredBoard(stored)) return null;
+    return isTerrainId(stored.terrain) ? stored.terrain : null;
+}
+
+// Best effort: a board that cannot be saved is not worth breaking the page for. Never throws. The terrain is
+// part of the saved value; without one the key is left out.
 export function saveBoard(
-    board: Record<BoardZone, SlotIds>,
+    board: Record<BoardZone, SlotIds> & { terrain?: TerrainId | null },
     storage: StorageLike | null = browserStorage("localStorage")
 ): void {
     const stored: StoredBoard = {
@@ -57,6 +71,7 @@ export function saveBoard(
         hand: [...board.hand],
         monsters: [...board.monster],
         spells: [...board.spell],
+        ...(board.terrain ? { terrain: board.terrain } : {}),
     };
     writeJson(storage, BOARD_KEY, stored);
 }

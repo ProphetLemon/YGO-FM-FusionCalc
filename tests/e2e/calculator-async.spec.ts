@@ -926,7 +926,7 @@ test.describe("a failed card index", () => {
         const input = slotAt(page, 0).locator("input");
         await input.fill("Myst");
         await pause(page);
-        await expect(page.getByRole("option")).toHaveCount(0);
+        await expect(page.getByRole("listbox").getByRole("option")).toHaveCount(0);
         expect(errors).toEqual([]);
 
         await page.unroute(isCardsIndex);

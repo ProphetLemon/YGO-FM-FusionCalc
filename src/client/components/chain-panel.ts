@@ -1,8 +1,11 @@
 import type { CardSummary, ChainResult } from "../../shared/types.js";
+import type { TerrainId } from "../../shared/terrains.js";
 import { t } from "../lib/i18n.js";
+import { statOnTerrain } from "../lib/terrain-view.js";
 import type { SentBoard } from "../lib/board.js";
 import { createCardTile } from "./card-tile.js";
 import { fieldTag } from "./slot-tag.js";
+import { createTerrainMark } from "./terrain-mark.js";
 
 // Stands in for the number while the translated sentence is split around it.
 const ATK_MARK = "\u0000";
@@ -55,12 +58,14 @@ export function operandOrigins(
 // The chains of the answer, best first. With several, a tab per chain picks the one shown; the others stay
 // in the page, hidden. The best chain also says how much better it is than the best single fusion. With
 // `sent`, the board the answer was made for, a chain that starts on the field tags that monster with its
-// slot. Cards of the hand carry no tag: a chain does not say which copy of a card it took.
+// slot. Cards of the hand carry no tag: a chain does not say which copy of a card it took. With a `terrain`
+// every ATK and DEF is the one the card has there, each changed value with its mark.
 export function renderChains(
     chains: readonly ChainResult[],
     bestSingle: CardSummary | null,
     handIds: readonly number[],
-    sent: SentBoard | null = null
+    sent: SentBoard | null = null,
+    terrain: TerrainId | null = null
 ): HTMLElement {
     const root = document.createElement("div");
     root.className = "chain-panel";
@@ -68,7 +73,14 @@ export function renderChains(
     const tabbed = chains.length > 1;
 
     const entries = chains.map((chain, index) => {
-        const entry = renderChain(chain, index === 0 ? bestSingle : null, handIds, index === 0, sent);
+        const entry = renderChain(
+            chain,
+            index === 0 ? bestSingle : null,
+            handIds,
+            index === 0,
+            sent,
+            terrain
+        );
         if (tabbed) {
             entry.id = `${id}-panel-${index}`;
             entry.setAttribute("role", "tabpanel");
@@ -79,11 +91,16 @@ export function renderChains(
     });
 
     if (tabbed) {
-        const tabs = renderTabs(chains, id, (selected) => {
-            entries.forEach((entry, index) => {
-                entry.hidden = index !== selected;
-            });
-        });
+        const tabs = renderTabs(
+            chains,
+            id,
+            (selected) => {
+                entries.forEach((entry, index) => {
+                    entry.hidden = index !== selected;
+                });
+            },
+            terrain
+        );
         root.appendChild(tabs);
     }
     for (const entry of entries) root.appendChild(entry);
@@ -95,7 +112,8 @@ export function renderChains(
 function renderTabs(
     chains: readonly ChainResult[],
     id: string,
-    onSelect: (index: number) => void
+    onSelect: (index: number) => void,
+    terrain: TerrainId | null
 ): HTMLElement {
     const list = document.createElement("div");
     list.className = "chain-tabs grid grid-cols-2 min-[701px]:grid-cols-4 gap-2 mb-4";
@@ -115,7 +133,11 @@ function renderTabs(
         rank.textContent = t("calculator.chain.tab", { n: index + 1 });
         const summary = document.createElement("b");
         summary.className = "text-[15px] leading-tight [overflow-wrap:anywhere]";
-        summary.textContent = `${chain.finalCard.name}, ${chain.finalCard.attack} ATK`;
+        const final = statOnTerrain(chain.finalCard.attack, chain.finalCard.type, terrain);
+        summary.textContent = `${chain.finalCard.name}, ${final.value} ATK`;
+        // The selected tab is blue, so its mark takes the text colour.
+        const mark = createTerrainMark(final.mark, true);
+        if (mark) summary.appendChild(mark);
         tab.append(rank, summary);
         return tab;
     });
@@ -159,7 +181,8 @@ function renderChain(
     bestSingle: CardSummary | null,
     handIds: readonly number[],
     isBest: boolean,
-    sent: SentBoard | null
+    sent: SentBoard | null,
+    terrain: TerrainId | null
 ): HTMLElement {
     const entry = document.createElement("div");
     entry.className = isBest ? "chain-entry chain-best" : "chain-entry";
@@ -168,8 +191,8 @@ function renderChain(
     body.className =
         "sink grid grid-cols-1 min-[701px]:grid-cols-[minmax(0,1fr)_210px] gap-6 items-start " +
         "p-3.5 min-[701px]:px-5 min-[701px]:py-[18px]";
-    body.appendChild(renderSteps(chain, handIds, sent));
-    body.appendChild(renderFinal(chain.finalCard, isBest ? bestSingle : null));
+    body.appendChild(renderSteps(chain, handIds, sent, terrain));
+    body.appendChild(renderFinal(chain.finalCard, isBest ? bestSingle : null, terrain));
     entry.appendChild(body);
 
     const verdict = document.createElement("p");
@@ -182,7 +205,12 @@ function renderChain(
     return entry;
 }
 
-function renderSteps(chain: ChainResult, handIds: readonly number[], sent: SentBoard | null): HTMLElement {
+function renderSteps(
+    chain: ChainResult,
+    handIds: readonly number[],
+    sent: SentBoard | null,
+    terrain: TerrainId | null
+): HTMLElement {
     const origins = operandOrigins(chain, handIds);
     const steps = document.createElement("ol");
     steps.className = "m-0 p-0 list-none flex flex-col gap-[18px] min-w-0";
@@ -200,11 +228,11 @@ function renderSteps(chain: ChainResult, handIds: readonly number[], sent: SentB
         const row = document.createElement("div");
         row.className = "flex flex-wrap items-center gap-3";
         const field = i === 0 ? fieldTag(sent, chain.fieldIndex) : null;
-        row.appendChild(operand(step.card1, origin1, field));
+        row.appendChild(operand(step.card1, origin1, terrain, field));
         row.appendChild(operator("+"));
-        row.appendChild(operand(step.card2, origin2));
+        row.appendChild(operand(step.card2, origin2, terrain));
         row.appendChild(operator("="));
-        row.appendChild(createCardTile(step.result, { size: "s", kind: "fusion" }));
+        row.appendChild(createCardTile(step.result, { size: "s", kind: "fusion", terrain }));
         item.appendChild(row);
         steps.appendChild(item);
     }
@@ -213,17 +241,22 @@ function renderSteps(chain: ChainResult, handIds: readonly number[], sent: SentB
 
 // A card of the hand or of the field (with the tag of its slot), or the result of an earlier step with a
 // caption that says which.
-function operand(card: CardSummary, origin: number | null, tag: HTMLElement | null = null): HTMLElement {
+function operand(
+    card: CardSummary,
+    origin: number | null,
+    terrain: TerrainId | null,
+    tag: HTMLElement | null = null
+): HTMLElement {
     const box = document.createElement("div");
     if (origin === null) {
-        box.appendChild(createCardTile(card, { size: "s" }));
+        box.appendChild(createCardTile(card, { size: "s", terrain }));
         if (tag) {
             tag.classList.add("mt-1");
             box.appendChild(tag);
         }
         return box;
     }
-    box.appendChild(createCardTile(card, { size: "s", kind: "fusion" }));
+    box.appendChild(createCardTile(card, { size: "s", kind: "fusion", terrain }));
     const caption = document.createElement("span");
     caption.className = "chain-carried block mt-1 max-w-[88px] text-center text-[13px] text-wb-mute";
     caption.textContent = t("calculator.chain.carried", { n: origin });
@@ -238,20 +271,27 @@ function operator(symbol: string): HTMLElement {
     return span;
 }
 
-function renderFinal(finalCard: CardSummary, bestSingle: CardSummary | null): HTMLElement {
+function renderFinal(
+    finalCard: CardSummary,
+    bestSingle: CardSummary | null,
+    terrain: TerrainId | null
+): HTMLElement {
     const final = document.createElement("div");
     final.className = "chain-final flex flex-col items-center gap-2.5 text-center min-w-0";
-    final.appendChild(createCardTile(finalCard, { size: "l", kind: "fusion" }));
-    final.appendChild(renderBigAtk(finalCard.attack));
+    final.appendChild(createCardTile(finalCard, { size: "l", kind: "fusion", terrain }));
+    const finalAtk = statOnTerrain(finalCard.attack, finalCard.type, terrain);
+    final.appendChild(renderBigAtk(finalAtk.value, finalAtk.mark));
 
-    if (bestSingle !== null && finalCard.attack > bestSingle.attack) {
+    // The gain is the one the ATK on the terrain shows: both numbers are the ones on that terrain.
+    const bestAtk = bestSingle ? statOnTerrain(bestSingle.attack, bestSingle.type, terrain).value : 0;
+    if (bestSingle !== null && finalAtk.value > bestAtk) {
         const gain = document.createElement("p");
         gain.className =
             "chain-gain m-0 px-3 py-1 bg-wb-blue text-white border-2 border-wb-blue font-body text-sm font-bold";
         gain.textContent = t("calculator.best.gain", {
-            gain: finalCard.attack - bestSingle.attack,
+            gain: finalAtk.value - bestAtk,
             card: bestSingle.name,
-            atk: bestSingle.attack,
+            atk: bestAtk,
         });
         final.appendChild(gain);
     }
@@ -259,7 +299,7 @@ function renderFinal(finalCard: CardSummary, bestSingle: CardSummary | null): HT
 }
 
 // The label is the translated "Final ATK: {{atk}}" sentence, with the number set apart so it can be large.
-function renderBigAtk(atk: number): HTMLElement {
+function renderBigAtk(atk: number, mark: number): HTMLElement {
     const [before = "", after = ""] = t("calculator.chain.final-atk", { atk: ATK_MARK }).split(ATK_MARK);
     const p = document.createElement("p");
     p.className = "chain-final-atk m-0 flex flex-wrap items-baseline justify-center gap-x-1.5 font-display";
@@ -270,6 +310,8 @@ function renderBigAtk(atk: number): HTMLElement {
     number.className = "text-[44px] font-bold leading-none text-wb-blue";
     number.textContent = String(atk);
     p.append(label, number);
+    const terrainMark = createTerrainMark(mark);
+    if (terrainMark) p.appendChild(terrainMark);
     if (after !== "") p.append(after);
     return p;
 }

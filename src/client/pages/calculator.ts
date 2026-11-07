@@ -2,6 +2,8 @@ import { mountNavbar } from "../components/navbar.js";
 import { Autocomplete } from "../components/autocomplete.js";
 import { renderChains } from "../components/chain-panel.js";
 import { renderEquipRow, renderFusionTable, renderRitualRow } from "../components/results-panels.js";
+import { fillTerrainOptions, readTerrain, terrainHintText } from "../components/terrain-control.js";
+import { fillCardStat } from "../components/terrain-mark.js";
 import { ApiError, calculate, chainSearch, getCardByName, getCardsIndex } from "../lib/api.js";
 import type {
     BoardZone,
@@ -12,6 +14,7 @@ import type {
     RitualExpanded,
 } from "../../shared/types.js";
 import { ZONE_SIZE } from "../../shared/limits.js";
+import type { TerrainId } from "../../shared/terrains.js";
 import {
     BOARD_SIZE,
     ZONES,
@@ -23,7 +26,13 @@ import {
     type SlotCard,
     type ZoneRecord,
 } from "../lib/board.js";
-import { loadBoard, placeLegacyRest, saveBoard, splitLegacyHand } from "../lib/board-storage.js";
+import {
+    loadBoard,
+    loadTerrain,
+    placeLegacyRest,
+    saveBoard,
+    splitLegacyHand,
+} from "../lib/board-storage.js";
 import { createCardImg } from "../lib/card-image.js";
 import { clear, qs } from "../lib/dom.js";
 import { loadHand } from "../lib/hand-storage.js";
@@ -99,11 +108,6 @@ function tileFrame(card: CardSummary): string {
     return card.typeName === "Equip" ? TILE_FRAME_CLASS.equip : TILE_FRAME_CLASS.magic;
 }
 
-// What the stat strip of a tile says: the stats of a monster, the type of anything else.
-function tileStat(card: CardSummary): string {
-    return card.isMonster ? `${card.attack} / ${card.defense}` : card.typeName;
-}
-
 document.addEventListener("DOMContentLoaded", () => {
     mountNavbar();
     mountCalculatorPage();
@@ -127,6 +131,8 @@ function mountCalculatorPage(): void {
     const boardCount = qs<HTMLElement>("#board-count");
     const boardNote = qs<HTMLElement>("#board-note");
     const resetBtn = qs<HTMLButtonElement>("#resetBtn");
+    const terrainSelect = qs<HTMLSelectElement>("#board-terrain");
+    const terrainHint = qs<HTMLElement>("#board-terrain-hint");
     const outputLeft = qs<HTMLElement>("#outputarealeft");
     const outputRight = qs<HTMLElement>("#outputarearight");
     const outputOther = qs<HTMLElement>("#outputareaother");
@@ -154,6 +160,8 @@ function mountCalculatorPage(): void {
         !boardCount ||
         !boardNote ||
         !resetBtn ||
+        !terrainSelect ||
+        !terrainHint ||
         !outputLeft ||
         !outputRight ||
         !outputOther ||
@@ -199,6 +207,9 @@ function mountCalculatorPage(): void {
     let persistReady = false;
     // Cards of a saved v1 hand past its fifth slot: they find their zone once the index can say what they are.
     let legacyRest: number[] = [];
+    // The field terrain the board and the results show their ATK and DEF on (E11): saved with the board, and
+    // kept when it is reset, as it belongs to the duel and not to the cards. null is the printed stats.
+    let terrain: TerrainId | null = loadTerrain();
 
     // The card a slot's text names, if the index knows it.
     const entryOf = (slot: SlotState): CardIndexEntry | undefined =>
@@ -216,7 +227,7 @@ function mountCalculatorPage(): void {
     });
 
     // What the board sends: filled slots that fit their zone (D5), with the map back to the slots.
-    const currentBoard = (): SentBoard => buildBoardRequest(boardCards());
+    const currentBoard = (): SentBoard => buildBoardRequest(boardCards(), terrain);
 
     const clearResults = (): void => {
         clear(outputLeft);
@@ -264,6 +275,8 @@ function mountCalculatorPage(): void {
     };
 
     const renderResults = (result: CalculatorResponse, sent: SentBoard): void => {
+        // The terrain the answer was ranked on, which is the one it is shown on.
+        const answeredTerrain = sent.request.terrain ?? null;
         // The server sorts fusions by the ATK of what they make; each kind keeps that order.
         const monsters = result.fusions.filter((fusion) => fusion.result.isMonster);
         const others = result.fusions.filter((fusion) => !fusion.result.isMonster);
@@ -275,6 +288,7 @@ function mountCalculatorPage(): void {
                     label: t("search.results.fusions"),
                     onApply: applyFusion,
                     sent,
+                    terrain: answeredTerrain,
                 })
             );
         } else {
@@ -284,10 +298,11 @@ function mountCalculatorPage(): void {
                     : "calculator.results.no-monster-fusions";
             appendNone(outputLeft, t(key));
         }
-        showOtherResults(outputOther, others, applyFusion, sent);
-        for (const equip of result.equips) outputRight.appendChild(renderEquipRow(equip, sent));
+        showOtherResults(outputOther, others, applyFusion, sent, answeredTerrain);
+        for (const equip of result.equips)
+            outputRight.appendChild(renderEquipRow(equip, sent, answeredTerrain));
         if (result.equips.length === 0) appendNone(outputRight, t("calculator.results.no-equips"));
-        showRituals(outputRituals, result.rituals, sent);
+        showRituals(outputRituals, result.rituals, sent, answeredTerrain);
         resultsHint.hidden = true;
         resultsPanels.hidden = false;
     };
@@ -323,7 +338,13 @@ function mountCalculatorPage(): void {
             if (res.chains.length === 0) chainOutput.append(t("calculator.chain.no-result"));
             else {
                 chainOutput.appendChild(
-                    renderChains(res.chains, bestSingleFusion(calculated), sent.request.handIds, sent)
+                    renderChains(
+                        res.chains,
+                        bestSingleFusion(calculated),
+                        sent.request.handIds,
+                        sent,
+                        sent.request.terrain ?? null
+                    )
                 );
             }
             chainBtn.classList.add("hidden");
@@ -392,6 +413,19 @@ function mountCalculatorPage(): void {
         }
     };
 
+    // The stat strip of a tile: ATK / DEF of a monster on the terrain, each changed value with its mark, or the
+    // type of anything else. A strip with marks may use a second line.
+    function paintStat(slot: SlotState): void {
+        const { card, statLabel } = slot;
+        let wraps = false;
+        if (!card) statLabel.textContent = "";
+        else if (card.isMonster) wraps = fillCardStat(statLabel, card, terrain);
+        else statLabel.textContent = card.typeName;
+        statLabel.classList.toggle("whitespace-nowrap", !wraps);
+        statLabel.classList.toggle("whitespace-normal", wraps);
+        statLabel.classList.toggle("leading-tight", wraps);
+    }
+
     function setSlotCard(slot: SlotState, card: CardSummary | null): void {
         slot.card = card;
         setSlotProblem(slot, null);
@@ -399,7 +433,7 @@ function mountCalculatorPage(): void {
             slot.imgWrapper.innerHTML = "";
             slot.imgWrapper.appendChild(createCardImg(card.name, card.imageCode, "w-full h-full"));
             slot.nameLabel.textContent = card.name;
-            slot.statLabel.textContent = tileStat(card);
+            paintStat(slot);
             slot.tile.className = `${TILE_CLASS} ${tileFrame(card)}`;
             slot.input.value = card.name;
             slot.clearBtn.setAttribute(
@@ -411,7 +445,7 @@ function mountCalculatorPage(): void {
         } else {
             slot.imgWrapper.innerHTML = "";
             slot.nameLabel.textContent = "";
-            slot.statLabel.textContent = "";
+            paintStat(slot);
             slot.input.value = "";
             slot.filledState.classList.add("hidden");
             slot.emptyState.classList.remove("hidden");
@@ -458,6 +492,7 @@ function mountCalculatorPage(): void {
             hand: slots.hand.map(idOf),
             monster: slots.monster.map(idOf),
             spell: slots.spell.map(idOf),
+            terrain,
         });
     };
 
@@ -709,6 +744,16 @@ function mountCalculatorPage(): void {
         return state;
     };
 
+    // E14: a new terrain changes every number on the page, so the board is drawn again and the results are asked
+    // for again like for a card change (the key of the board names the terrain, and the latest answer wins).
+    terrainSelect.addEventListener("change", () => {
+        terrain = readTerrain(terrainSelect);
+        terrainHint.textContent = terrainHintText(terrain, "calculator");
+        for (const slot of allSlots) paintStat(slot);
+        persist();
+        void refresh();
+    });
+
     indexRetryBtn.addEventListener("click", () => void loadIndex());
     // Only after a chain error: the results are not asked for again.
     chainBtn.addEventListener("click", () => void runChainSearch(currentBoard()));
@@ -737,6 +782,10 @@ function mountCalculatorPage(): void {
         resetChain();
         persist();
     });
+
+    fillTerrainOptions(terrainSelect);
+    terrainSelect.value = terrain ?? "";
+    terrainHint.textContent = terrainHintText(terrain, "calculator");
 
     // The slots come back as they were saved; their cards wait for the index (see restoreBoard). Without a
     // v2 board, the hand of an older version supplies the first five slots now and the rest of its cards later.
@@ -839,7 +888,8 @@ function showOtherResults(
     where: HTMLElement,
     fusions: readonly FusionExpanded[],
     onApply: (fusion: FusionExpanded) => void,
-    sent: SentBoard
+    sent: SentBoard,
+    terrain: TerrainId | null
 ): void {
     if (fusions.length === 0) return;
     const title = document.createElement("h3");
@@ -852,13 +902,19 @@ function showOtherResults(
             label: t("calculator.results.non-monster"),
             onApply,
             sent,
+            terrain,
         })
     );
     where.classList.remove("hidden");
 }
 
 // The panel stays on screen whatever the board: with no ritual it says what a ritual needs.
-function showRituals(where: HTMLElement, rituals: readonly RitualExpanded[], sent: SentBoard): void {
+function showRituals(
+    where: HTMLElement,
+    rituals: readonly RitualExpanded[],
+    sent: SentBoard,
+    terrain: TerrainId | null
+): void {
     if (rituals.length === 0) {
         const none = document.createElement("p");
         none.className = "m-0";
@@ -866,5 +922,5 @@ function showRituals(where: HTMLElement, rituals: readonly RitualExpanded[], sen
         where.appendChild(none);
         return;
     }
-    for (const ritual of rituals) where.appendChild(renderRitualRow(ritual, sent));
+    for (const ritual of rituals) where.appendChild(renderRitualRow(ritual, sent, terrain));
 }

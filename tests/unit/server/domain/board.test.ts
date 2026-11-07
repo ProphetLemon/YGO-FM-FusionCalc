@@ -1,8 +1,20 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { loadStore } from "../../../../src/server/data/store.js";
-import { findBoardChains, findBoardCombinations } from "../../../../src/server/domain/board.js";
+import {
+    findBoardChains,
+    findBoardCombinations,
+    sortRitualsOnTerrain,
+} from "../../../../src/server/domain/board.js";
+import { expand } from "../../../../src/server/domain/rituals.js";
+import { getRitualRecipes } from "../../../../src/server/data/store.js";
+import { TERRAIN_IDS, terrainAttack, type TerrainId } from "../../../../src/shared/terrains.js";
 import { findCombinations } from "../../../../src/server/domain/calculator.js";
-import { findBestChains } from "../../../../src/server/domain/chain-search.js";
+import {
+    MAX_CHAIN_STATES,
+    compareCandidates,
+    exploreHandStates,
+    findBestChains,
+} from "../../../../src/server/domain/chain-search.js";
 import type { SlotRef } from "../../../../src/shared/types.js";
 
 const UNKNOWN_CARD = 999_999;
@@ -229,6 +241,92 @@ describe("board domain", () => {
             // Legacy lists an Equip pair in hand order; the board always puts the Equip card first.
             expect(pairKeys(answer.equips)).toEqual(pairKeys(legacy.equips));
             expect(findBoardChains(board(handIds))).toEqual(findBestChains(handIds));
+        });
+    });
+
+    describe("on a terrain", () => {
+        // Time Wizard and Celtic Guardian each fuse with Baby Dragon: Dinosaur (card 11, 1750) and Thunder
+        // (card 425, 1600), and Mountain lifts Thunder but not Dinosaur.
+        const FUSION_HAND = [BABY_DRAGON, 41, 45];
+        const DINOSAUR_RESULT = 11;
+        const THUNDER_RESULT = 425;
+        // The hand whose sixth candidate by printed ATK (card 11, a Dinosaur) is lifted into the top 5 by Wasteland.
+        const PROMOTION_HAND = [553, 272, 448, 438, 199];
+
+        const terrainBoard = (terrain: TerrainId | null, ...rest: Parameters<typeof board>) => ({
+            ...board(...rest),
+            terrain,
+        });
+
+        it("orders the fusions by the ATK of the result on the terrain", () => {
+            const printed = findBoardCombinations(board(FUSION_HAND)).fusions.map((f) => f.result.id);
+            expect(printed.slice(0, 2)).toEqual([DINOSAUR_RESULT, THUNDER_RESULT]);
+            const onMountain = findBoardCombinations(terrainBoard("mountain", FUSION_HAND));
+            expect(onMountain.fusions.map((f) => f.result.id).slice(0, 2)).toEqual([
+                THUNDER_RESULT,
+                DINOSAUR_RESULT,
+            ]);
+        });
+
+        it("keeps the printed values in the summaries", () => {
+            const { fusions } = findBoardCombinations(terrainBoard("mountain", FUSION_HAND));
+            expect(fusions.find((f) => f.result.id === THUNDER_RESULT)?.result.attack).toBe(1600);
+        });
+
+        it("answers like no terrain for a null terrain and for a terrain that moves nothing", () => {
+            const plain = findBoardCombinations(board(FUSION_HAND));
+            expect(findBoardCombinations(terrainBoard(null, FUSION_HAND))).toEqual(plain);
+            // Yami touches Fiend, Spellcaster and Fairy only; none of these results is one.
+            expect(findBoardCombinations(terrainBoard("yami", FUSION_HAND)).fusions).toEqual(plain.fusions);
+            expect(findBoardChains(terrainBoard(null, FUSION_HAND))).toEqual(
+                findBoardChains(board(FUSION_HAND))
+            );
+        });
+
+        it("orders rituals by the ATK of the result on the terrain, ties by id", () => {
+            // Recipe 666 makes Yamadron (Dragon, 1600) and 677 makes card 702 (Warrior, 2000).
+            const rituals = getRitualRecipes()
+                .filter((recipe) => recipe.Result === YAMADRON || recipe.Result === 702)
+                .flatMap((recipe) => expand(recipe) ?? []);
+            expect(rituals).toHaveLength(2);
+            const order = (terrain: TerrainId): number[] =>
+                sortRitualsOnTerrain([...rituals], terrain).map((r) => r.result.id);
+            expect(order("sogen")).toEqual([702, YAMADRON]);
+            expect(order("mountain")).toEqual([YAMADRON, 702]);
+            expect(terrainAttack(1600, 0, "mountain")).toBeGreaterThan(2000);
+        });
+
+        it("sorts a ritual board with a terrain without losing the ritual", () => {
+            const { rituals } = findBoardCombinations(
+                terrainBoard("mountain", [YAMADRON_RITUAL], YAMADRON_MATERIALS)
+            );
+            expect(rituals.map((r) => r.result.id)).toEqual([YAMADRON]);
+        });
+
+        it("chooses the top 5 chains after the terrain adjusts them", () => {
+            const all = [...exploreHandStates(PROMOTION_HAND, MAX_CHAIN_STATES).candidates.values()];
+            const printedRank = [...all].sort(compareCandidates).map((c) => c.last.result);
+            expect(printedRank.indexOf(DINOSAUR_RESULT)).toBeGreaterThanOrEqual(5);
+
+            const printed = findBoardChains(board(PROMOTION_HAND)).chains.map((c) => c.finalCard.id);
+            expect(printed).not.toContain(DINOSAUR_RESULT);
+
+            const { chains } = findBoardChains(terrainBoard("wasteland", PROMOTION_HAND));
+            const promoted = chains.find((c) => c.finalCard.id === DINOSAUR_RESULT);
+            expect(promoted).toBeDefined();
+            // The summary keeps the printed ATK while the ranking uses 2250.
+            expect(promoted?.finalCard.attack).toBe(1750);
+            expect(chains).toHaveLength(5);
+            const adjusted = chains.map((c) =>
+                terrainAttack(c.finalCard.attack, c.finalCard.type, "wasteland")
+            );
+            expect(adjusted).toEqual([...adjusted].sort((a, b) => b - a));
+        });
+
+        it.each(TERRAIN_IDS)("ranks the chains of every candidate on %s by adjusted ATK", (terrain) => {
+            const { chains } = findBoardChains(terrainBoard(terrain, PROMOTION_HAND));
+            const adjusted = chains.map((c) => terrainAttack(c.finalCard.attack, c.finalCard.type, terrain));
+            expect(adjusted).toEqual([...adjusted].sort((a, b) => b - a));
         });
     });
 });

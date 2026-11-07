@@ -82,7 +82,8 @@ function isBoardRequest(req: Request): boolean {
     return isRecord(req.body) && ("monsterIds" in req.body || "spellIds" in req.body);
 }
 
-// A zone left out is empty. Sends the 400 itself and returns null when the board cannot be used.
+// A zone left out is empty, and so is a terrain left out. Sends the 400 itself and returns null when the board
+// cannot be used.
 function readBoard(req: Request, res: Response): BoardInput | null {
     const body: Record<string, unknown> = isRecord(req.body) ? req.body : {};
     const handIds = body.handIds;
@@ -109,6 +110,11 @@ function readBoard(req: Request, res: Response): BoardInput | null {
         }
     }
     if (!isHand(handIds) || !isHand(monsterIds) || !isHand(spellIds)) return null;
+    const terrain = body.terrain;
+    if (terrain !== undefined && terrain !== null && !isTerrainId(terrain)) {
+        sendError(res, 400, { code: "invalid-options", message: terrainMessage() });
+        return null;
+    }
     if (monsterIds.some((id) => isKnownNonMonster(id))) {
         sendError(res, 400, { code: "invalid-zones", message: "monsterIds must hold only monsters" });
         return null;
@@ -117,7 +123,11 @@ function readBoard(req: Request, res: Response): BoardInput | null {
         sendError(res, 400, { code: "invalid-zones", message: "spellIds must not hold monsters" });
         return null;
     }
-    return { handIds, monsterIds, spellIds };
+    return { handIds, monsterIds, spellIds, ...(isTerrainId(terrain) ? { terrain } : {}) };
+}
+
+function terrainMessage(): string {
+    return `terrain must be one of ${TERRAIN_IDS.join(", ")}, or null for no terrain`;
 }
 
 function isKnownMonster(id: number): boolean {
@@ -258,7 +268,7 @@ function readDeckRequest(req: Request, res: Response): DeckOptimizeRequest | nul
     if (terrain !== undefined && terrain !== null && !isTerrainId(terrain)) {
         sendError(res, 400, {
             code: "invalid-options",
-            message: `terrain must be one of ${TERRAIN_IDS.join(", ")}, or null for no terrain`,
+            message: terrainMessage(),
         });
         return null;
     }

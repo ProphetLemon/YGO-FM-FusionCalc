@@ -127,4 +127,62 @@ describe("board mode of the hand endpoints", () => {
         expect(res.body.chains[0].fieldIndex).toBe(0);
         expect(res.body.truncated).toBe(false);
     });
+
+    describe.each(ENDPOINTS)("%s with a terrain", (endpoint) => {
+        const body = { handIds: [BABY_DRAGON, 41, 45], monsterIds: [], spellIds: [] };
+
+        it.each(["umi", "yami", null])("accepts %s", async (terrain) => {
+            const res = await request(app)
+                .post(endpoint)
+                .send({ ...body, terrain });
+            expect(res.status).toBe(200);
+        });
+
+        it("treats an absent terrain and a null one as the answer without terrain", async () => {
+            const plain = await request(app).post(endpoint).send(body);
+            const none = await request(app)
+                .post(endpoint)
+                .send({ ...body, terrain: null });
+            expect(none.text).toBe(plain.text);
+        });
+
+        it.each(["lava", "", 5, true, ["umi"], {}])("rejects %j with invalid-options", async (terrain) => {
+            const res = await request(app)
+                .post(endpoint)
+                .send({ ...body, terrain });
+            expect(res.status).toBe(400);
+            expect(res.body.error.code).toBe("invalid-options");
+            expect(res.body.error.message).toContain("terrain");
+        });
+    });
+
+    it("/api/calculator ranks the fusions by the ATK on the terrain and keeps the printed values", async () => {
+        const send = { handIds: [BABY_DRAGON, 41, 45], monsterIds: [], spellIds: [] };
+        const plain = await request(app).post("/api/calculator").send(send);
+        const mountain = await request(app)
+            .post("/api/calculator")
+            .send({ ...send, terrain: "mountain" });
+        expect(plain.body.fusions[0].result.id).toBe(11);
+        expect(mountain.body.fusions[0].result.id).toBe(425);
+        expect(mountain.body.fusions[0].result.attack).toBe(1600);
+    });
+
+    it("/api/chain-search promotes a chain with the terrain", async () => {
+        const send = { handIds: [553, 272, 448, 438, 199], monsterIds: [], spellIds: [] };
+        const ids = (chains: Array<{ finalCard: { id: number } }>): number[] =>
+            chains.map((c) => c.finalCard.id);
+        const plain = await request(app).post("/api/chain-search").send(send);
+        const wasteland = await request(app)
+            .post("/api/chain-search")
+            .send({ ...send, terrain: "wasteland" });
+        expect(ids(plain.body.chains)).not.toContain(11);
+        expect(ids(wasteland.body.chains)).toContain(11);
+    });
+
+    it("ignores a terrain in the legacy hand-only mode", async () => {
+        const handIds = [BABY_DRAGON, 41, 45];
+        const res = await request(app).post("/api/calculator").send({ handIds, terrain: "lava" });
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual(JSON.parse(JSON.stringify(findCombinations({ handIds }))));
+    });
 });

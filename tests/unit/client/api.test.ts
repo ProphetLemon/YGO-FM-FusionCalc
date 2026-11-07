@@ -174,6 +174,17 @@ describe("abort signal", () => {
         expect(init?.method).toBe("POST");
         expect(init?.body).toBe(JSON.stringify({ handIds: [13], monsterIds: [2], spellIds: [7] }));
     });
+
+    it("both calls carry the terrain of the board when it has one", async () => {
+        const board = { handIds: [13], monsterIds: [2], spellIds: [7], terrain: "umi" } as const;
+        const fetchMock = stubFetch(jsonResponse(200, { fusions: [], equips: [], rituals: [] }));
+        await calculate(board);
+        expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual(board);
+
+        const chainMock = stubFetch(jsonResponse(200, { chains: [], truncated: false }));
+        await chainSearch(board);
+        expect(JSON.parse(String(chainMock.mock.calls[0]?.[1]?.body))).toEqual(board);
+    });
 });
 
 describe("getCardsIndex", () => {

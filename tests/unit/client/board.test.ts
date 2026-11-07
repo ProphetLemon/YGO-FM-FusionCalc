@@ -60,6 +60,20 @@ describe("buildBoardRequest", () => {
         expect(sent.count).toBe(0);
     });
 
+    it("carries the terrain only when there is one, and names it in the key", () => {
+        const cards = board({ hand: [monster(2), null, null, null, null] });
+        const plain = buildBoardRequest(cards);
+        const none = buildBoardRequest(cards, null);
+        const umi = buildBoardRequest(cards, "umi");
+
+        expect(plain.request).not.toHaveProperty("terrain");
+        expect(none).toEqual(plain);
+        expect(umi.request).toEqual({ handIds: [2], monsterIds: [], spellIds: [], terrain: "umi" });
+        expect(umi.slots).toEqual(plain.slots);
+        expect(umi.key).not.toBe(plain.key);
+        expect(umi.key).not.toBe(buildBoardRequest(cards, "yami").key);
+    });
+
     it("leaves empty slots out and maps each sent index back to its slot", () => {
         const sent = buildBoardRequest(
             board({

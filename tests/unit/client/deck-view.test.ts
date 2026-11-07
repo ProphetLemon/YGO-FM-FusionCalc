@@ -26,7 +26,6 @@ import {
     spareRows,
     statRows,
     summarizeSave,
-    terrainTypes,
     toggleForbid,
     toggleLock,
     verdictOf,
@@ -930,32 +929,6 @@ describe("cards added by hand", () => {
                 [100, 2, 1],
             ]);
         });
-    });
-});
-
-describe("terrainTypes", () => {
-    it("names the boosted and weakened Types of Umi and who plays it", () => {
-        expect(terrainTypes("umi")).toEqual({
-            boosted: ["Fish", "Sea Serpent", "Thunder", "Aqua"],
-            weakened: ["Machine", "Pyro"],
-            duelists: ["Ocean Mage", "High Mage Secmeton"],
-        });
-    });
-
-    it("names the Types of Yami, with Fairy weakened", () => {
-        const yami = terrainTypes("yami");
-        expect(yami.boosted).toEqual(["Fiend", "Spellcaster"]);
-        expect(yami.weakened).toEqual(["Fairy"]);
-        expect(yami.duelists).toEqual(["Guardian Sebek", "Guardian Neku"]);
-    });
-
-    it("gives every terrain at least one boosted Type and one duelist, and a name to each Type", () => {
-        for (const id of TERRAIN_IDS) {
-            const { boosted, weakened, duelists } = terrainTypes(id);
-            expect(boosted.length).toBeGreaterThan(0);
-            expect(duelists.length).toBeGreaterThan(0);
-            for (const name of [...boosted, ...weakened]) expect(name).toMatch(/^[A-Za-z-]+( [A-Za-z]+)?$/);
-        }
     });
 });
 

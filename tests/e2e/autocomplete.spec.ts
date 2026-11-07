@@ -39,7 +39,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 function options(page: Page): Locator {
-    return page.getByRole("option");
+    return page.getByRole("listbox").getByRole("option");
 }
 
 // The suggestion under the keyboard highlight, the only one drawn on the ink background.

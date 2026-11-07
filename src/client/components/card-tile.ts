@@ -1,5 +1,7 @@
 import type { CardSummary } from "../../shared/types.js";
+import type { TerrainId } from "../../shared/terrains.js";
 import { createCardImg } from "../lib/card-image.js";
+import { fillCardStat } from "./terrain-mark.js";
 
 // How the API names the Equip card type (`cardTypes` in types-and-stars.json).
 const EQUIP_TYPE_NAME = "Equip";
@@ -40,7 +42,7 @@ const TILE_CLASS =
 // What a tile draws; a full CardSummary has it, and so does an entry of the card catalog.
 export type TileCard = Pick<
     CardSummary,
-    "name" | "imageCode" | "isMonster" | "typeName" | "attack" | "defense"
+    "name" | "imageCode" | "isMonster" | "type" | "typeName" | "attack" | "defense"
 >;
 
 export function isEquipCard(card: Pick<CardSummary, "typeName">): boolean {
@@ -62,6 +64,8 @@ export interface CardTileOptions {
     size: TileSize;
     // Defaults to the kind the card has by itself.
     kind?: CardKind;
+    // The field terrain whose ATK and DEF the stat strip shows, each changed value with its mark.
+    terrain?: TerrainId | null;
 }
 
 // A card as the Workbench draws it: frame by kind, a name strip, the real artwork in a dark well (a
@@ -94,7 +98,15 @@ export function createCardTile(card: TileCard, options: CardTileOptions): HTMLEl
         stat.className =
             `card-tile-stat ${STAT_SIZE_CLASS[size]} px-1 bg-white/70 font-body font-bold text-center ` +
             "whitespace-nowrap overflow-hidden";
-        stat.textContent = cardStat(card);
+        if (card.isMonster && options.terrain) {
+            // A strip with marks has more to say than the printed one: it may use a second line.
+            if (fillCardStat(stat, card, options.terrain)) {
+                stat.classList.replace("whitespace-nowrap", "whitespace-normal");
+                stat.classList.add("leading-tight");
+            }
+        } else {
+            stat.textContent = cardStat(card);
+        }
         tile.appendChild(stat);
     }
     return tile;

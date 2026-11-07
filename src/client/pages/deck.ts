@@ -127,7 +127,7 @@ function mountDeckPage(): void {
     let countdown: number | null = null;
 
     const renderTerrainHint = (): void => {
-        terrainHint.textContent = terrainHintText(terrain);
+        terrainHint.textContent = terrainHintText(terrain, "deck");
     };
     fillTerrainOptions(terrainSelect);
     renderTerrainHint();

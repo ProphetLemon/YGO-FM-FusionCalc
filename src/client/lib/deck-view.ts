@@ -11,8 +11,7 @@ import type {
     DeckStats,
 } from "../../shared/types.js";
 import { copyLimit, MAX_COPIES_PER_CARD } from "../../shared/limits.js";
-import { TERRAINS, terrainAttack, type TerrainId } from "../../shared/terrains.js";
-import typesAndStars from "../../shared/types-and-stars.json";
+import { terrainAttack, type TerrainId } from "../../shared/terrains.js";
 import { ApiError } from "./api.js";
 import { MAX_SAVE_FILE_BYTES, parseFmSaves, type FmSave, type ParseSavesResult } from "./fm-save.js";
 
@@ -298,29 +297,6 @@ export function buildDeckRequest(
     };
     if (terrain !== null) request.terrain = terrain;
     return request;
-}
-
-export interface TerrainTypes {
-    // Names of the monster Types that gain the terrain bonus, in the order of the table.
-    boosted: string[];
-    // Names of the monster Types that lose it.
-    weakened: string[];
-    // The duelists who start a duel on the terrain.
-    duelists: string[];
-}
-
-function typeName(id: number): string {
-    return typesAndStars.cardTypes[id] ?? String(id);
-}
-
-// What a terrain does, in the names the cards show (the app names Types in English everywhere).
-export function terrainTypes(terrain: TerrainId): TerrainTypes {
-    const entry = TERRAINS[terrain];
-    return {
-        boosted: entry.boosted.map(typeName),
-        weakened: entry.weakened.map(typeName),
-        duelists: [...entry.duelists],
-    };
 }
 
 // The ATK a card has on the terrain the answer was scored with; the printed one without a terrain.

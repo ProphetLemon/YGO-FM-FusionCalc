@@ -1071,20 +1071,20 @@ test.describe("the card index and the autocomplete when the index cannot be had"
             await input.fill("mushroo");
             await expect.poll(() => attempts.started.length).toBeGreaterThan(0);
             await settled(page, attempts);
-            await expect(page.getByRole("option")).toHaveCount(0);
+            await expect(page.getByRole("listbox").getByRole("option")).toHaveCount(0);
 
             // A failed list is not remembered: the next keystroke asks for it again.
             const asked = attempts.started.length;
             await input.pressSequentially("m");
             await expect.poll(() => attempts.started.length).toBeGreaterThan(asked);
             await settled(page, attempts);
-            await expect(page.getByRole("option")).toHaveCount(0);
+            await expect(page.getByRole("listbox").getByRole("option")).toHaveCount(0);
             expect(problems).toEqual([]);
 
             await page.unroute(isCardsIndex);
             await input.press("Backspace");
 
-            await expect(page.getByRole("option")).toHaveText(MUSHROOMS);
+            await expect(page.getByRole("listbox").getByRole("option")).toHaveText(MUSHROOMS);
             expect(problems).toEqual([]);
         });
     }
@@ -1100,7 +1100,7 @@ test.describe("the card index and the autocomplete when the index cannot be had"
         await page.locator("#cardname").dispatchEvent("change");
 
         await expect(page.locator("#outputcard")).toContainText(MYSTICAL_ELF);
-        await expect(page.getByRole("option")).toHaveCount(0);
+        await expect(page.getByRole("listbox").getByRole("option")).toHaveCount(0);
         expect(problems).toEqual([]);
     });
 
@@ -1117,7 +1117,7 @@ test.describe("the card index and the autocomplete when the index cannot be had"
         await expect(alert).toBeVisible();
         await handSlot(page, 3).locator("input").fill("Mushroo");
         await pause(page);
-        await expect(page.getByRole("option")).toHaveCount(0);
+        await expect(page.getByRole("listbox").getByRole("option")).toHaveCount(0);
 
         await page.unroute(isCardsIndex);
         await alert.getByRole("button", { name: TEXT.retry }).click();
@@ -1145,7 +1145,7 @@ test.describe("the card index and the autocomplete when the index cannot be had"
 
         await page.locator("#cardname").fill("mushroo");
 
-        await expect(page.getByRole("option")).toHaveText(MUSHROOMS);
+        await expect(page.getByRole("listbox").getByRole("option")).toHaveText(MUSHROOMS);
         expect(problems).toEqual([]);
     });
 

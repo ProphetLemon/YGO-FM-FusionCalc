@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     loadBoard,
+    loadTerrain,
     placeLegacyRest,
     saveBoard,
     splitLegacyHand,
@@ -105,6 +106,83 @@ describe("saveBoard and loadBoard", () => {
             monster: none(),
             spell: none(),
         });
+    });
+});
+
+describe("the terrain saved with the board", () => {
+    const board = { hand: [2, null, null, null, null], monster: none(), spell: none() };
+
+    it("round-trips with the board", () => {
+        const storage = new MemoryStorage();
+
+        saveBoard({ ...board, terrain: "umi" }, storage);
+
+        expect(loadTerrain(storage)).toBe("umi");
+        expect(loadBoard(storage)).toEqual(board);
+        expect(JSON.parse(storage.items.get(KEY) ?? "")).toMatchObject({ v: 2, terrain: "umi" });
+    });
+
+    it("is left out of the value when there is none, and reads as none", () => {
+        for (const terrain of [undefined, null]) {
+            const storage = new MemoryStorage();
+
+            saveBoard({ ...board, terrain }, storage);
+
+            expect(JSON.parse(storage.items.get(KEY) ?? "")).not.toHaveProperty("terrain");
+            expect(loadTerrain(storage)).toBeNull();
+        }
+    });
+
+    it("is replaced, and cleared, by the next save", () => {
+        const storage = new MemoryStorage();
+        saveBoard({ ...board, terrain: "umi" }, storage);
+
+        saveBoard({ ...board, terrain: "yami" }, storage);
+        expect(loadTerrain(storage)).toBe("yami");
+
+        saveBoard(board, storage);
+        expect(loadTerrain(storage)).toBeNull();
+    });
+
+    it("reads as none in a value saved before the key existed", () => {
+        const storage = storageHolding(stored([2], [], []));
+
+        expect(loadTerrain(storage)).toBeNull();
+        expect(loadBoard(storage)).not.toBeNull();
+    });
+
+    it.each(["lava", "", 5, true, null, ["umi"], {}])("reads %j as none and keeps the board", (terrain) => {
+        const raw = JSON.stringify({ v: 2, hand: [2], monsters: [], spells: [], terrain });
+        const storage = storageHolding(raw);
+
+        expect(loadTerrain(storage)).toBeNull();
+        expect(loadBoard(storage)).toEqual({
+            hand: [2, null, null, null, null],
+            monster: none(),
+            spell: none(),
+        });
+    });
+
+    it("reads as none when nothing usable is saved, and when storage is blocked", () => {
+        expect(loadTerrain(new MemoryStorage())).toBeNull();
+        expect(loadTerrain(storageHolding("not json"))).toBeNull();
+        expect(
+            loadTerrain(
+                storageHolding(JSON.stringify({ v: 1, hand: [], monsters: [], spells: [], terrain: "umi" }))
+            )
+        ).toBeNull();
+        expect(loadTerrain({ getItem: blocked, setItem: blocked })).toBeNull();
+        expect(loadTerrain(null)).toBeNull();
+    });
+
+    it("is not read from the v1 hand, which a migration turns into a board without terrain", () => {
+        const storage = new MemoryStorage();
+        storage.items.set(
+            "ygo-fm-fusioncalc:hand:v1",
+            '{"v":1,"slots":[2,null,null,null,null],"terrain":"umi"}'
+        );
+
+        expect(loadTerrain(storage)).toBeNull();
     });
 });
 

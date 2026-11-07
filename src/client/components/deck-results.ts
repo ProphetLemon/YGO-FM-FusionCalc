@@ -94,7 +94,7 @@ function renderVerdict(answer: DeckOptimizeResponse, context: DeckResultsContext
     if (context.withManualCards) body.appendChild(el("p", "m-0 mt-2", t("deck.results.manual")));
     // The terrain changes the numbers below, so the answer says which one it was scored with.
     if (context.terrain !== null) {
-        const name = t(`deck.terrain.name.${context.terrain}`);
+        const name = t(`terrain.name.${context.terrain}`);
         const line = el("p", "m-0 mt-2", t("deck.results.terrain", { name }));
         line.dataset.terrain = context.terrain;
         body.appendChild(line);

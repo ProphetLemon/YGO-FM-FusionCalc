@@ -1,4 +1,5 @@
 import { ZONE_SIZE } from "../../shared/limits.js";
+import type { TerrainId } from "../../shared/terrains.js";
 import type { BoardZone, SlotRef } from "../../shared/types.js";
 
 // The board of the calculator: a hand, a monster zone and a spell/trap zone with ZONE_SIZE slots each. These
@@ -34,6 +35,8 @@ export interface BoardRequest {
     handIds: number[];
     monsterIds: number[];
     spellIds: number[];
+    // The field terrain the answer is ranked on; left out when there is none.
+    terrain?: TerrainId;
 }
 
 // What was sent for a board. The server numbers cards by their place in the arrays it receives, which hold
@@ -43,13 +46,18 @@ export interface SentBoard {
     slots: Record<BoardZone, number[]>;
     // Cards sent in all.
     count: number;
-    // Names this exact request, slot positions included: the same ids in other slots give another key.
+    // Names this exact request, slot positions and terrain included: the same ids in other slots, or on another
+    // terrain, give another key.
     key: string;
 }
 
 // A card that does not fit its zone, an empty slot and a name the index lacks are all `null` and are not
-// sent (D5): the server takes no empty entries, and the slot map keeps the positions of the ones it takes.
-export function buildBoardRequest(cards: Record<BoardZone, ReadonlyArray<SlotCard | null>>): SentBoard {
+// sent (D5): the server takes no empty entries, and the slot map keeps the positions of the ones it takes. The
+// terrain goes in the request only when there is one (E14).
+export function buildBoardRequest(
+    cards: Record<BoardZone, ReadonlyArray<SlotCard | null>>,
+    terrain: TerrainId | null = null
+): SentBoard {
     const ids: Record<BoardZone, number[]> = { hand: [], monster: [], spell: [] };
     const slots: Record<BoardZone, number[]> = { hand: [], monster: [], spell: [] };
     for (const zone of ZONES) {
@@ -59,12 +67,19 @@ export function buildBoardRequest(cards: Record<BoardZone, ReadonlyArray<SlotCar
             slots[zone].push(slot);
         });
     }
-    const key = ZONES.map((zone) => ids[zone].map((id, i) => `${slots[zone][i]}:${id}`).join(",")).join("|");
+    const cardsKey = ZONES.map((zone) => ids[zone].map((id, i) => `${slots[zone][i]}:${id}`).join(",")).join(
+        "|"
+    );
     return {
-        request: { handIds: ids.hand, monsterIds: ids.monster, spellIds: ids.spell },
+        request: {
+            handIds: ids.hand,
+            monsterIds: ids.monster,
+            spellIds: ids.spell,
+            ...(terrain === null ? {} : { terrain }),
+        },
         slots,
         count: ids.hand.length + ids.monster.length + ids.spell.length,
-        key,
+        key: terrain === null ? cardsKey : `${cardsKey}@${terrain}`,
     };
 }
 

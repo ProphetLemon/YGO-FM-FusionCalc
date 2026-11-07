@@ -4,6 +4,16 @@
         <p class="m-0 max-w-[60ch] text-wb-subtle"><%= t('calculator.subtitle') %></p>
     </div>
 
+    <%# The terrain belongs to the duel, not to the cards, so it sits above the board: inside the sticky board
+        column it would make that column too tall for a 1080p window. %>
+    <div class="mb-4 max-w-[540px]">
+        <div class="flex items-center gap-3">
+            <label for="board-terrain" class="flex-none font-bold"><%= t('terrain.label') %></label>
+            <select id="board-terrain" aria-describedby="board-terrain-hint" class="wb-input min-w-0 flex-1"></select>
+        </div>
+        <p id="board-terrain-hint" class="m-0 mt-1.5 text-sm text-wb-mute"></p>
+    </div>
+
     <div class="grid grid-cols-1 gap-5 items-start min-[1101px]:grid-cols-[540px_minmax(0,1fr)]">
         <%
             const GLYPHS = {
